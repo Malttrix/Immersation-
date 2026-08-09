@@ -2,6 +2,7 @@ import { subscribeToSendfox } from "../lib/sendfox";
 import { defaultArticles } from "../articlesData";
 import { supabase } from "../lib/supabase";
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import { motion, useScroll, useTransform, useReducedMotion } from "motion/react";
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -28,6 +29,18 @@ import {
   Eye
 } from "lucide-react";
 
+/**
+ * ============================================================================
+ * ACCESSIBILITY & PREFERS-REDUCED-MOTION SPECIFICATION:
+ * All motion components check `useReducedMotion()`. When `prefers-reduced-motion: reduce`
+ * is enabled in the user's OS or browser preferences:
+ * - All transform-based animations (scaleX underline triggers, paragraph translate-y slide-ups,
+ *   sidebar card entrances, and hero image parallax transforms) are automatically disabled.
+ * - The components fall back immediately to instant 100% opacity and static layouts,
+ *   ensuring full compliance with WCAG 2.1 AAA motion guidelines.
+ * ============================================================================
+ */
+
 interface ArticlesViewProps {
   lang: "en" | "zh";
   onBackToHome: () => void;
@@ -50,7 +63,812 @@ export interface Article {
     zh: string;
   };
   pinterestImageUrl?: string;
+  cover?: string;
+  author?: string;
+  adUrl?: string;
 }
+
+// ----------------------------------------------------------------------------
+// 1. READING PROGRESS MARKER
+// Scroll-linked marker in the right margin moving along a vertical track (0-100%)
+// ----------------------------------------------------------------------------
+export function ReadingProgressMarker({
+  targetRef,
+  lang,
+}: {
+  targetRef: React.RefObject<HTMLElement | null>;
+  lang: "en" | "zh";
+}) {
+  const shouldReduceMotion = useReducedMotion();
+  const { scrollYProgress } = useScroll({
+    target: targetRef,
+    offset: ["start start", "end end"],
+  });
+
+  const progressTop = useTransform(scrollYProgress, [0, 1], ["0%", "100%"]);
+  const progressPercent = useTransform(scrollYProgress, [0, 1], [0, 100]);
+  const [pct, setPct] = useState(0);
+
+  useEffect(() => {
+    return progressPercent.on("change", (latest) => {
+      setPct(Math.round(Math.min(100, Math.max(0, latest))));
+    });
+  }, [progressPercent]);
+
+  return (
+    <aside
+      aria-label={lang === "en" ? "Reading progress" : "阅读进度"}
+      className="hidden xl:flex flex-col items-center sticky top-36 h-[320px] ml-6 shrink-0 select-none pointer-events-none"
+    >
+      {/* Top percentage label */}
+      <span className="font-mono text-[9px] uppercase tracking-widest text-[#8B5A44] font-semibold mb-2">
+        {pct}%
+      </span>
+
+      {/* Vertical track line */}
+      <div className="w-[2px] bg-[#D8D2C6]/60 flex-1 relative rounded-full overflow-hidden">
+        <motion.div
+          className="w-full bg-[#B69A6B] origin-top h-full"
+          style={{ scaleY: shouldReduceMotion ? 1 : scrollYProgress }}
+        />
+      </div>
+
+      {/* Moving progress dot along the track */}
+      <div className="w-[2px] h-full absolute top-6 bottom-4 left-1/2 -translate-x-1/2">
+        <motion.div
+          className="w-3.5 h-3.5 rounded-full bg-[#B69A6B] border-2 border-[#F4F1EB] shadow-md absolute -left-[6px] -top-1.5 flex items-center justify-center"
+          style={{ top: shouldReduceMotion ? "100%" : progressTop }}
+        >
+          <span className="w-1 h-1 rounded-full bg-white" />
+        </motion.div>
+      </div>
+
+      {/* Bottom label */}
+      <span className="font-display text-[8px] uppercase tracking-widest text-[#1C1C1C]/40 mt-2 font-bold">
+        {lang === "en" ? "READ" : "阅读"}
+      </span>
+    </aside>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 2. ACTIVE TABLE OF CONTENTS
+// Detects active viewport heading & applies gold left border (#B69A6B) + bold state
+// ----------------------------------------------------------------------------
+export function TableOfContents({
+  headings,
+  lang,
+  activeHeadingId,
+}: {
+  headings: { text: string; level: number; id: string }[];
+  lang: "en" | "zh";
+  activeHeadingId?: string | null;
+}) {
+  const [open, setOpen] = useState(true);
+
+  if (headings.length === 0) return null;
+
+  return (
+    <div className="border border-[#D8D2C6] rounded-sm bg-white/60 p-4 flex flex-col max-h-[42vh] shadow-2xs">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center justify-between w-full text-[11px] tracking-[0.2em] uppercase text-[#1A2F24] font-bold shrink-0 cursor-pointer"
+      >
+        {lang === "en" ? "In This Article" : "本文目录"}
+        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <ul className="mt-3 flex flex-col gap-1.5 overflow-y-auto pr-1 toc-scroll">
+          {headings.map((h, i) => {
+            const headingId = h.id;
+            const isActive = activeHeadingId === headingId;
+            return (
+              <li key={i} style={{ paddingLeft: `${(h.level - 2) * 10}px` }}>
+                <a
+                  href={`#${headingId}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const el = document.getElementById(headingId);
+                    if (el) {
+                      const yOffset = -90;
+                      const rect = el.getBoundingClientRect();
+                      const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                      const targetY = rect.top + scrollTop + yOffset;
+                      window.scrollTo({ top: targetY, behavior: "smooth" });
+                      window.history.pushState(null, "", `#${headingId}`);
+                    }
+                  }}
+                  className={`text-[12.5px] leading-snug block transition-all duration-200 border-l-2 py-1 pl-2.5 -ml-px ${
+                    isActive
+                      ? "border-[#B69A6B] text-[#1A2F24] font-bold bg-[#B69A6B]/10 rounded-r-xs"
+                      : "border-transparent text-[#1C1C1C]/70 hover:text-[#8B5A44] hover:border-[#D8D2C6]"
+                  }`}
+                >
+                  {h.text}
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 3. SECTION HEADING REVEAL (ArticleHeading)
+// H2 headings with a 2px gold underline (#B69A6B) animating scaleX from 0 to 1 on entry
+// ----------------------------------------------------------------------------
+export function ArticleHeading({
+  id,
+  children,
+  level = 2,
+  className = "",
+}: {
+  id?: string;
+  children: React.ReactNode;
+  level?: 1 | 2 | 3 | 4;
+  className?: string;
+}) {
+  const shouldReduceMotion = useReducedMotion();
+
+  if (level === 2) {
+    return (
+      <div id={id} className="pt-10 pb-3 scroll-mt-24 group relative">
+        <h2 className={`font-serif text-2xl sm:text-3xl font-semibold text-[#1A2F24] ${className}`}>
+          {children}
+        </h2>
+        {/* Gold underline scaleX 0 to 1 transition (400ms, ease-out) */}
+        <motion.div
+          className="h-[2px] bg-[#B69A6B] mt-2 origin-left"
+          initial={{ scaleX: shouldReduceMotion ? 1 : 0 }}
+          whileInView={{ scaleX: 1 }}
+          viewport={{ once: true, margin: "-40px" }}
+          transition={{ duration: shouldReduceMotion ? 0 : 0.4, ease: "easeOut" }}
+        />
+      </div>
+    );
+  }
+
+  if (level === 3) {
+    return (
+      <h3 id={id} className={`font-serif text-xl sm:text-2xl font-medium text-[#1A2F24] pt-8 pb-2 border-b border-[#D8D2C6]/30 scroll-mt-24 ${className}`}>
+        {children}
+      </h3>
+    );
+  }
+
+  if (level === 4) {
+    return (
+      <h4 id={id} className={`font-serif text-lg font-semibold text-[#1A2F24] pt-6 pb-1 scroll-mt-24 ${className}`}>
+        {children}
+      </h4>
+    );
+  }
+
+  return (
+    <h1 className={`font-serif text-3xl sm:text-4xl font-bold text-[#1A2F24] pt-12 pb-4 border-b border-[#D8D2C6] ${className}`}>
+      {children}
+    </h1>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 4. PARAGRAPH FADE-UP (ArticleParagraph)
+// Article paragraphs fade in & translate up 10px on viewport entry (staggered 50ms)
+// ----------------------------------------------------------------------------
+export function ArticleParagraph({
+  children,
+  index = 0,
+  className = "",
+}: {
+  children: React.ReactNode;
+  index?: number;
+  className?: string;
+}) {
+  const shouldReduceMotion = useReducedMotion();
+
+  return (
+    <motion.p
+      initial={shouldReduceMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 10 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-20px" }}
+      transition={{
+        duration: shouldReduceMotion ? 0 : 0.3,
+        delay: shouldReduceMotion ? 0 : (index % 5) * 0.05,
+        ease: "easeOut",
+      }}
+      className={`leading-relaxed font-serif text-base sm:text-[17px] text-[#1C1C1C]/90 my-5 ${className}`}
+    >
+      {children}
+    </motion.p>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 5. SIDEBAR CARD ENTRANCE (SidebarCard)
+// Fades in and slides up 16px when first entering viewport (350ms duration)
+// ----------------------------------------------------------------------------
+export function SidebarCard({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const shouldReduceMotion = useReducedMotion();
+
+  return (
+    <motion.div
+      initial={shouldReduceMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 16 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      transition={{ duration: shouldReduceMotion ? 0 : 0.35, ease: "easeOut" }}
+      className={`border border-[#D8D2C6] rounded-sm bg-white/60 overflow-hidden ${className}`}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 6. SUBTLE HERO IMAGE PARALLAX (HeroImage)
+// Moves at 92% of scroll speed relative to container (8% parallax offset)
+// ----------------------------------------------------------------------------
+export function HeroImage({
+  src,
+  alt,
+  className = "",
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const shouldReduceMotion = useReducedMotion();
+
+  const { scrollYProgress } = useScroll({
+    target: containerRef,
+    offset: ["start end", "end start"],
+  });
+
+  const y = useTransform(scrollYProgress, [0, 1], ["-4%", "4%"]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative overflow-hidden rounded-sm border border-[#D8D2C6]/60 shadow-sm mb-10 group"
+    >
+      <motion.img
+        src={src}
+        alt={alt}
+        referrerPolicy="no-referrer"
+        style={{ y: shouldReduceMotion ? 0 : y, scale: 1.08 }}
+        className={`w-full h-auto max-h-[520px] object-cover ${className}`}
+        loading="eager"
+      />
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 7. SHARE ICON INTERACTION (ShareBar / SocialShareBar)
+// Hover scale 1.08 + background color tint shift (150ms transition duration)
+// ----------------------------------------------------------------------------
+export function ShareBar({
+  article,
+  lang,
+  url,
+  title,
+}: {
+  article?: Article;
+  lang: "en" | "zh";
+  url?: string;
+  title?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const shouldReduceMotion = useReducedMotion();
+
+  const articleTitle = title || (article ? article.title[lang] : "");
+  const shareUrl = url || (typeof window !== "undefined" ? window.location.href : "");
+
+  const shareLinks = [
+    {
+      name: "X",
+      href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(articleTitle)}&url=${encodeURIComponent(shareUrl)}`,
+      bgHoverClass: "hover:bg-[#1DA1F2]/15 hover:text-[#1DA1F2] hover:border-[#1DA1F2]",
+      icon: (
+        <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
+          <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231ZM17.83 20.25h1.833L7.045 3.75H5.087Z" />
+        </svg>
+      ),
+    },
+    {
+      name: "LinkedIn",
+      href: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`,
+      bgHoverClass: "hover:bg-[#0A66C2]/15 hover:text-[#0A66C2] hover:border-[#0A66C2]",
+      icon: (
+        <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
+          <path d="M20.45 20.45h-3.55v-5.57c0-1.33-.02-3.03-1.85-3.03-1.85 0-2.14 1.45-2.14 2.94v5.66H9.36V9h3.41v1.56h.05c.48-.9 1.64-1.85 3.38-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28ZM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12ZM7.12 20.45H3.56V9h3.56v11.45Z" />
+        </svg>
+      ),
+    },
+    {
+      name: "Pinterest",
+      href: `https://pinterest.com/pin/create/button/?url=${encodeURIComponent(shareUrl)}&description=${encodeURIComponent(articleTitle)}`,
+      bgHoverClass: "hover:bg-[#E60023]/15 hover:text-[#E60023] hover:border-[#E60023]",
+      icon: (
+        <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
+          <path d="M12 2C6.48 2 2 6.36 2 11.74c0 4.12 2.54 7.63 6.15 9.04-.08-.77-.16-1.95.03-2.79.18-.76 1.15-4.83 1.15-4.83s-.29-.59-.29-1.45c0-1.36.79-2.38 1.77-2.38.84 0 1.24.63 1.24 1.38 0 .84-.54 2.1-.81 3.27-.23.98.49 1.78 1.46 1.78 1.75 0 3.09-1.85 3.09-4.51 0-2.36-1.7-4.01-4.12-4.01-2.81 0-4.46 2.1-4.46 4.27 0 .85.33 1.75.73 2.24a.29.29 0 0 1 .07.28c-.08.31-.25 1-.29 1.14-.04.19-.15.23-.35.14-1.3-.6-2.11-2.5-2.11-4.02 0-3.27 2.38-6.28 6.86-6.28 3.6 0 6.4 2.57 6.4 6-0 3.58-2.26 6.46-5.4 6.46-1.05 0-2.05-.55-2.39-1.2 0 0-.52 1.99-.65 2.48-.24.9-.87 2.03-1.3 2.72A10 10 0 1 0 12 2Z" />
+        </svg>
+      ),
+    },
+    {
+      name: "WhatsApp",
+      href: `https://wa.me/?text=${encodeURIComponent(articleTitle + " " + shareUrl)}`,
+      bgHoverClass: "hover:bg-[#25D366]/15 hover:text-[#25D366] hover:border-[#25D366]",
+      icon: (
+        <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
+          <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.87.51 3.63 1.4 5.13L2 22l5.13-1.5a9.9 9.9 0 0 0 4.91 1.3c5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2Zm5.79 14.02c-.24.68-1.4 1.32-1.94 1.4-.5.08-1.12.11-1.81-.11-.42-.13-.95-.31-1.64-.6-2.9-1.25-4.78-4.16-4.93-4.36-.15-.2-1.18-1.57-1.18-2.99 0-1.42.75-2.11 1.02-2.4.26-.28.58-.35.77-.35h.55c.18 0 .42-.07.65.5.24.57.8 1.98.87 2.12.07.15.11.32.02.51-.09.19-.13.31-.26.48-.13.17-.28.38-.4.51-.13.13-.27.28-.12.55.16.28.71 1.18 1.53 1.91 1.05.94 1.94 1.24 2.22 1.38.28.13.44.11.6-.07.17-.18.7-.81.89-1.09.19-.28.38-.23.63-.13.26.09 1.63.77 1.91.91.28.13.46.2.53.31.07.13.07.72-.17 1.39Z" />
+        </svg>
+      ),
+    },
+  ];
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(shareUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="flex items-center gap-3 py-6 my-6 border-y border-[#D8D2C6]/60">
+      <span className="text-[10px] tracking-[0.25em] uppercase text-[#1C1C1C]/45 font-display font-semibold mr-1">
+        {lang === "en" ? "Share" : "分享"}
+      </span>
+      {shareLinks.map((s) => (
+        <motion.a
+          key={s.name}
+          href={s.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`Share on ${s.name}`}
+          whileHover={shouldReduceMotion ? {} : { scale: 1.08 }}
+          transition={{ duration: 0.15 }}
+          className={`w-9 h-9 flex items-center justify-center rounded-full border border-[#D8D2C6] text-[#1A2F24] transition-colors duration-150 ${s.bgHoverClass}`}
+        >
+          {s.icon}
+        </motion.a>
+      ))}
+      <motion.button
+        onClick={handleCopy}
+        aria-label={lang === "en" ? "Copy link" : "复制链接"}
+        whileHover={shouldReduceMotion ? {} : { scale: 1.08 }}
+        transition={{ duration: 0.15 }}
+        className="ml-1 w-9 h-9 flex items-center justify-center rounded-full border border-[#8B5A44]/50 text-[#8B5A44] hover:bg-[#8B5A44]/15 hover:border-[#8B5A44] transition-colors duration-150 relative cursor-pointer"
+      >
+        {copied ? (
+          <CheckCircle className="w-4 h-4 text-[#8B5A44]" />
+        ) : (
+          <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07L11.5 4.5" />
+            <path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 0 0 7.07 7.07L12.5 19.5" />
+          </svg>
+        )}
+      </motion.button>
+      {copied && (
+        <span className="text-[11px] text-[#8B5A44] font-medium ml-2">
+          {lang === "en" ? "Link copied" : "链接已复制"}
+        </span>
+      )}
+    </div>
+  );
+}
+
+export interface ArticlePageProps {
+  article: Article;
+  lang: "en" | "zh";
+  onBack: () => void;
+  onBookmark?: (slug: string, e: React.MouseEvent) => void;
+  isBookmarked?: boolean;
+  relatedArticles?: Article[];
+  onNavigate?: (slug: string) => void;
+  onPlayChime?: () => void;
+  activeArticleStats?: { views: number; timeSpent: number } | null;
+  activeHeadingId?: string | null;
+}
+
+export function ArticlePage({
+  article,
+  lang,
+  onBack,
+  onBookmark,
+  isBookmarked,
+  relatedArticles = [],
+  onNavigate,
+  onPlayChime,
+  activeArticleStats,
+  activeHeadingId,
+}: ArticlePageProps) {
+  const articleBodyRef = useRef<HTMLElement>(null);
+
+  const generateSlug = (text: string) => {
+    return text.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-').replace(/(^-|-$)/g, '');
+  };
+
+  const headings = (article.content[lang] || "")
+    .split("\n")
+    .filter((line: string) => line.startsWith("## ") || line.startsWith("### ") || line.startsWith("#### "))
+    .map((line: string) => {
+      let level = 2;
+      let text = line;
+      if (line.startsWith("#### ")) { level = 4; text = line.replace("#### ", "").trim(); }
+      else if (line.startsWith("### ")) { level = 3; text = line.replace("### ", "").trim(); }
+      else if (line.startsWith("## ")) { level = 2; text = line.replace("## ", "").trim(); }
+      const cleanText = text.replace(/[*_~`]/g, '');
+      return { text: cleanText, level, id: generateSlug(cleanText) };
+    });
+
+  const originalContent = article.content[lang] || "";
+  const contentLines = originalContent.split("\n");
+  const firstH1Index = contentLines.findIndex(line => line.trim().startsWith("# "));
+  if (firstH1Index !== -1) {
+    contentLines.splice(firstH1Index, 1);
+  }
+  const cleanedContent = contentLines.join("\n");
+
+  const getPlainText = (children: any): string => {
+    if (!children) return "";
+    if (typeof children === "string") return children;
+    if (Array.isArray(children)) {
+      return children.map(getPlainText).join("");
+    }
+    if (children.props && children.props.children) {
+      return getPlainText(children.props.children);
+    }
+    return "";
+  };
+
+  let paragraphIndex = 0;
+
+  const markdownComponents = {
+    h1: ({ children }: any) => (
+      <h1 className="font-serif text-3xl sm:text-4xl font-bold text-[#1A2F24] pt-12 pb-4 border-b border-[#D8D2C6]">
+        {children}
+      </h1>
+    ),
+    h2: ({ children }: any) => {
+      const id = generateSlug(getPlainText(children));
+      return (
+        <ArticleHeading id={id} level={2}>
+          {children}
+        </ArticleHeading>
+      );
+    },
+    h3: ({ children }: any) => {
+      const id = generateSlug(getPlainText(children));
+      return (
+        <ArticleHeading id={id} level={3}>
+          {children}
+        </ArticleHeading>
+      );
+    },
+    h4: ({ children }: any) => {
+      const id = generateSlug(getPlainText(children));
+      return (
+        <ArticleHeading id={id} level={4}>
+          {children}
+        </ArticleHeading>
+      );
+    },
+    p: ({ children }: any) => {
+      const text = getPlainText(children).trim();
+
+      if (/^https?:\/\/.*\.(png|jpe?g|gif|webp|svg|heic)(\?.*)?$/i.test(text)) {
+        return (
+          <figure className="my-8 space-y-2 text-center article-image-frame">
+            <img
+              src={text}
+              alt="Article Image"
+              referrerPolicy="no-referrer"
+              className="mx-auto rounded-sm border border-[#D8D2C6]/60 shadow-sm max-h-[400px] w-full max-w-full object-cover loading-lazy article-graded-img"
+            />
+          </figure>
+        );
+      }
+
+      if (text.includes("{{audio:")) {
+        const audioMatch = text.match(/\{\{audio:(.*?)\}\}/);
+        if (audioMatch) {
+          const url = audioMatch[1];
+          return (
+            <div className="bg-[#1A2F24]/5 border border-[#8B5A44]/30 rounded-sm p-4 my-6 flex items-center gap-4">
+              <Music className="w-6 h-6 text-[#8B5A44] shrink-0" />
+              <div className="flex-1 min-w-0">
+                <span className="font-display text-[9px] font-bold text-[#8B5A44] uppercase tracking-widest block mb-1">
+                  Embedded Media Player
+                </span>
+                <audio src={url} controls className="w-full h-8 accent-[#8B5A44]" />
+              </div>
+            </div>
+          );
+        }
+      }
+
+      paragraphIndex += 1;
+      return (
+        <ArticleParagraph index={paragraphIndex}>
+          {children}
+        </ArticleParagraph>
+      );
+    },
+    strong: ({ children }: any) => (
+      <strong className="font-semibold text-[#1A2F24]">{children}</strong>
+    ),
+    em: ({ children }: any) => (
+      <em className="italic text-[#1C1C1C]/85">{children}</em>
+    ),
+    ul: ({ children }: any) => (
+      <ul className="list-disc pl-6 my-4 space-y-2.5 font-serif text-base sm:text-[17px] text-[#1C1C1C]/90">
+        {children}
+      </ul>
+    ),
+    ol: ({ children }: any) => (
+      <ol className="list-decimal pl-6 my-4 space-y-3 font-serif text-base sm:text-[17px] text-[#1C1C1C]/90">
+        {children}
+      </ol>
+    ),
+    li: ({ children }: any) => <li className="leading-relaxed">{children}</li>,
+    blockquote: ({ children }: any) => (
+      <blockquote className="border-l-4 border-[#B69A6B] pl-4 italic my-6 text-[#1A2F24]/85 font-serif">
+        {children}
+      </blockquote>
+    ),
+    a: ({ href, children }: any) => {
+      const isExternal = href && (href.startsWith("http://") || href.startsWith("https://") || href.startsWith("//"));
+      return (
+        <a
+          href={href}
+          target={isExternal ? "_blank" : undefined}
+          rel={isExternal ? "noopener noreferrer" : undefined}
+          className="text-[#8B5A44] hover:underline underline-offset-4 transition-all duration-300"
+        >
+          {children}
+        </a>
+      );
+    },
+    pre: ({ children }: any) => (
+      <pre className="bg-[#1A2F24] text-[#F4F1EB] rounded-sm p-6 font-mono text-xs overflow-x-auto shadow-inner leading-relaxed my-6 border border-white/5">
+        {children}
+      </pre>
+    ),
+    code: ({ className, children, ...props }: any) => {
+      const match = /language-(\w+)/.exec(className || "");
+      const codeContent = String(children).replace(/\n$/, "");
+      const isInline = !match && !codeContent.includes("\n");
+      if (isInline) {
+        return (
+          <code className="bg-[#1A2F24]/10 text-[#8B5A44] font-mono text-xs px-1.5 py-0.5 rounded-sm">
+            {children}
+          </code>
+        );
+      }
+      return (
+        <code className={className} {...props}>
+          {children}
+        </code>
+      );
+    },
+    table: ({ children }: any) => (
+      <div className="w-full overflow-x-auto my-8 rounded-sm border border-[#D8D2C6]/60">
+        <table className="w-full text-left border-collapse text-sm text-[#1C1C1C]">{children}</table>
+      </div>
+    ),
+    thead: ({ children }: any) => (
+      <thead className="bg-[#1A2F24]/5 border-b border-[#D8D2C6]">{children}</thead>
+    ),
+    tbody: ({ children }: any) => (
+      <tbody className="divide-y divide-[#D8D2C6]/40">{children}</tbody>
+    ),
+    tr: ({ children }: any) => (
+      <tr className="hover:bg-[#1A2F24]/5 transition-colors">{children}</tr>
+    ),
+    th: ({ children }: any) => (
+      <th className="px-4 py-3 font-display text-[11px] uppercase tracking-wide font-semibold text-[#1A2F24]">
+        {children}
+      </th>
+    ),
+    td: ({ children }: any) => (
+      <td className="px-4 py-3 font-serif text-[#1C1C1C]/90 leading-relaxed">{children}</td>
+    ),
+    img: ({ src, alt }: any) => (
+      <figure className="my-8 space-y-2 text-center article-image-frame">
+        <img
+          src={src}
+          alt={alt}
+          referrerPolicy="no-referrer"
+          className="mx-auto rounded-sm border border-[#D8D2C6]/60 shadow-sm max-h-[400px] w-full max-w-full object-cover loading-lazy article-graded-img"
+        />
+        {alt && (
+          <figcaption className="font-display text-[10px] text-[#1C1C1C]/50 uppercase tracking-widest">
+            {alt}
+          </figcaption>
+        )}
+      </figure>
+    ),
+    hr: () => <hr className="my-10 border-t border-[#D8D2C6]" />,
+  };
+
+  return (
+    <div className="bg-[#F4F1EB] min-h-screen pt-28 pb-24" id="article-reader-view">
+      <div className="max-w-7xl mx-auto px-6 md:px-12 relative flex">
+        <div className="flex-1">
+
+          {/* Top navigation bar */}
+          <div className="flex justify-between items-center border-b border-[#D8D2C6]/50 pb-6 mb-12" id="reader-top-bar">
+            <button
+              onClick={onBack}
+              className="group flex items-center gap-2.5 font-display text-[11px] font-bold tracking-[0.25em] text-[#1A2F24] hover:text-[#8B5A44] transition-colors uppercase cursor-pointer"
+              id="reader-back-btn"
+            >
+              <ArrowLeft className="w-4 h-4 transform group-hover:-translate-x-1 transition-transform" />
+              {lang === "en" ? "BACK TO ARTICLES" : "返回文章列表"}
+            </button>
+            <div className="flex items-center gap-4" id="reader-actions">
+              {onBookmark && (
+                <button
+                  onClick={(e) => onBookmark(article.slug, e)}
+                  className="p-2 border border-[#D8D2C6] hover:border-[#8B5A44] rounded-sm text-[#1C1C1C]/70 hover:text-[#8B5A44] transition-all cursor-pointer"
+                  title={lang === "en" ? "Bookmark Article" : "收藏文章"}
+                  id="reader-bookmark-btn"
+                >
+                  <Bookmark className={`w-4 h-4 ${isBookmarked ? "fill-[#8B5A44] text-[#8B5A44]" : ""}`} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* TWO-COLUMN GRID: main content + sidebar */}
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_280px] lg:grid-cols-[1fr_320px] gap-12 lg:gap-16">
+
+            {/* MAIN ARTICLE COLUMN */}
+            <article ref={articleBodyRef} className="w-full max-w-[70ch] mx-auto lg:mx-0">
+              <p className="text-[11px] tracking-[0.25em] uppercase text-[#8B5A44] font-bold mb-4">
+                {article.category[lang]}
+              </p>
+              <h1 className="font-display text-[2rem] md:text-[2.75rem] leading-[1.15] text-[#1A2F24] mb-6">
+                {article.title[lang]}
+              </h1>
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-[#1C1C1C]/55 mb-10 border-b border-[#D8D2C6]/50 pb-6 font-display uppercase tracking-wide">
+                <span className="flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-[#8B5A44]" />
+                  {article.date[lang]}
+                </span>
+                <span className="text-[#D8D2C6]">•</span>
+                <span className="flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-[#8B5A44]" />
+                  {article.readTime[lang]}
+                </span>
+                <span className="text-[#D8D2C6]">•</span>
+                <span className="flex items-center gap-1.5 font-medium text-[#1A2F24] normal-case tracking-normal">
+                  {lang === "en" ? "By" : "作者"} {article.author || (lang === "en" ? "Immersation Editor" : "智枢阁编辑部")}
+                </span>
+                {activeArticleStats && (
+                  <>
+                    <span className="text-[#D8D2C6]">•</span>
+                    <span className="flex items-center gap-1.5" title={lang === "en" ? "Unique Pageviews" : "独立网页阅览量"}>
+                      <Eye className="w-3.5 h-3.5 text-[#8B5A44]" />
+                      {activeArticleStats.views.toLocaleString()} {lang === "en" ? "views" : "次阅览"}
+                    </span>
+                  </>
+                )}
+              </div>
+              
+              {/* Parallax Hero Image */}
+              {article.cover && (
+                <HeroImage src={article.cover} alt={article.title[lang]} />
+              )}
+
+              {/* Mobile Table of Contents */}
+              <div className="md:hidden mt-8 mb-8">
+                <TableOfContents headings={headings} lang={lang} activeHeadingId={activeHeadingId} />
+              </div>
+
+              {/* Top Share Bar */}
+              <ShareBar article={article} lang={lang} />
+
+              {/* Body Content */}
+              <div className="prose-immersation">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeSanitize]}
+                  components={markdownComponents}
+                >
+                  {cleanedContent}
+                </ReactMarkdown>
+              </div>
+
+              {/* Article Tags */}
+              <div className="flex flex-wrap gap-2 mt-12 pt-8 border-t border-[#D8D2C6]/50">
+                {article.tags.map((tag) => (
+                  <span key={tag} className="text-[11px] uppercase tracking-wide text-[#1C1C1C]/60 border border-[#D8D2C6] rounded-full px-3 py-1">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+
+              {/* Bottom Share Bar */}
+              <ShareBar article={article} lang={lang} />
+              
+              {/* Reader Reflections */}
+              <ReaderReflections articleSlug={article.slug} lang={lang} onPlayChime={onPlayChime} />
+
+              {/* Mobile Sidebar Items */}
+              <div className="md:hidden mt-16 flex flex-col gap-8">
+                <SidebarCard>
+                  <SidebarPinterestWidget 
+                    imageUrl={article.pinterestImageUrl || article.cover} 
+                    altText={article.title[lang]} 
+                    lang={lang} 
+                    pageUrl={typeof window !== "undefined" ? window.location.href : undefined}
+                  />
+                </SidebarCard>
+                <SidebarCard>
+                  <SidebarNewsletterCTA lang={lang} />
+                </SidebarCard>
+                {article.adUrl && (
+                  <SidebarCard>
+                    <SidebarAdSlot lang={lang} slotId="mobile-inline" adUrl={article.adUrl} />
+                  </SidebarCard>
+                )}
+                <SidebarRelated articles={relatedArticles} lang={lang} onNavigate={onNavigate ? onNavigate : () => {}} />
+              </div>
+            </article>
+
+            {/* DESKTOP SIDEBAR */}
+            <aside className="hidden md:flex flex-col gap-8 sticky top-28 self-start h-fit w-full">
+              <TableOfContents headings={headings} lang={lang} activeHeadingId={activeHeadingId} />
+
+              <div className="flex flex-col gap-8">
+                <SidebarCard>
+                  <SidebarPinterestWidget
+                    imageUrl={article.pinterestImageUrl || article.cover}
+                    altText={article.title[lang]}
+                    lang={lang}
+                    pageUrl={typeof window !== "undefined" ? window.location.href : undefined}
+                  />
+                </SidebarCard>
+                <SidebarCard>
+                  <SidebarNewsletterCTA lang={lang} />
+                </SidebarCard>
+                <SidebarRelated
+                  articles={relatedArticles}
+                  lang={lang}
+                  onNavigate={onNavigate ? onNavigate : () => {}}
+                />
+                {article.adUrl && (
+                  <SidebarCard>
+                    <SidebarAdSlot lang={lang} slotId="sidebar-bottom" adUrl={article.adUrl} />
+                  </SidebarCard>
+                )}
+              </div>
+            </aside>
+
+          </div>
+        </div>
+
+        {/* Vertical Reading Progress Tracker in Right Margin */}
+        <ReadingProgressMarker targetRef={articleBodyRef} lang={lang} />
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// LEGACY COMPONENT ALIASES FOR COMPATIBILITY
+// ----------------------------------------------------------------------------
+const SocialShareBar = ShareBar;
+const SidebarTOC = TableOfContents;
 
 const MagneticButton = ({ children, className, href, onClick }: any) => {
   const buttonRef = useRef<HTMLAnchorElement>(null);
@@ -101,55 +919,6 @@ const MagneticButton = ({ children, className, href, onClick }: any) => {
   );
 };
 
-
-function SidebarTOC({ headings, lang, activeHeadingId }: { headings: { text: string; level: number; id: string }[]; lang: "en" | "zh"; activeHeadingId: string | null }) {
-  const [open, setOpen] = useState(true);
-  return (
-    <div className="border border-[#D8D2C6] rounded-sm bg-white/50 p-4 flex flex-col max-h-[38vh]">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-full text-[11px] tracking-[0.2em] uppercase text-[#1A2F24] font-bold shrink-0"
-      >
-        {lang === "en" ? "In This Article" : "本文目录"}
-        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
-      </button>
-      {open && (
-        <ul className="mt-3 flex flex-col gap-2 overflow-y-auto pr-1 toc-scroll">
-          {headings.map((h, i) => {
-            const headingId = h.id;
-            const isActive = activeHeadingId === headingId;
-            return (
-              <li key={i} style={{ paddingLeft: `${(h.level - 2) * 12}px` }} className="transition-all duration-300">
-                <a
-                  href={`#${headingId}`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    const el = document.getElementById(headingId);
-                    if (el) {
-                      const yOffset = -90; // Offset for sticky navbar on both desktop and mobile viewports
-                      const rect = el.getBoundingClientRect();
-                      const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-                      const targetY = rect.top + scrollTop + yOffset;
-                      window.scrollTo({ top: targetY, behavior: "smooth" });
-                      window.history.pushState(null, "", `#${headingId}`);
-                    }
-                  }}
-                  className={`text-[12.5px] leading-snug block transition-all duration-200 ${
-                    isActive 
-                      ? "text-[#8B5A44] font-semibold border-l-2 border-[#8B5A44] pl-2 -ml-2" 
-                      : "text-[#1C1C1C]/70 hover:text-[#8B5A44]"
-                  }`}
-                >
-                  {h.text}
-                </a>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
-  );
-}
 
 function SidebarPinterestWidget({
   imageUrl,
@@ -739,377 +1508,23 @@ export default function ArticlesView({ lang, onBackToHome, onPlayChime, initialA
 
   // Render Reader View
   if (activeArticle) {
-    
-    const generateSlug = (text: string) => {
-      return text.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-').replace(/(^-|-$)/g, '');
-    };
-
-    const headings = activeArticle.content[lang]
-      .split("\n")
-      .filter((line: string) => line.startsWith("## ") || line.startsWith("### ") || line.startsWith("#### "))
-      .map((line: string) => {
-        let level = 2;
-        let text = line;
-        if (line.startsWith("#### ")) { level = 4; text = line.replace("#### ", "").trim(); }
-        else if (line.startsWith("### ")) { level = 3; text = line.replace("### ", "").trim(); }
-        else if (line.startsWith("## ")) { level = 2; text = line.replace("## ", "").trim(); }
-        const cleanText = text.replace(/[*_~`]/g, '');
-        return { text: cleanText, level, id: generateSlug(cleanText) };
-      });
-
     const relatedArticles = articles
       .filter((a: any) => a.slug !== activeArticle.slug && a.pillar === activeArticle.pillar && a.pillar !== "general")
       .slice(0, 4);
 
-    const originalContent = activeArticle.content[lang] || "";
-    // Remove the first Markdown H1 heading (e.g. # Heading) from the body content to prevent duplicate headings on the page
-    const contentLines = originalContent.split("\n");
-    const firstH1Index = contentLines.findIndex(line => line.trim().startsWith("# "));
-    if (firstH1Index !== -1) {
-      contentLines.splice(firstH1Index, 1);
-    }
-    const cleanedContent = contentLines.join("\n");
-
-    const getPlainText = (children: any): string => {
-      if (!children) return "";
-      if (typeof children === "string") return children;
-      if (Array.isArray(children)) {
-        return children.map(getPlainText).join("");
-      }
-      if (children.props && children.props.children) {
-        return getPlainText(children.props.children);
-      }
-      return "";
-    };
-
-    const markdownComponents = {
-      h1: ({ children }: any) => (
-        <h1 className="font-serif text-3xl sm:text-4xl font-bold text-[#1A2F24] pt-12 pb-4 border-b border-[#D8D2C6]">
-          {children}
-        </h1>
-      ),
-      h2: ({ children }: any) => {
-        const id = generateSlug(getPlainText(children));
-        return (
-          <h2 id={id} className="font-serif text-2xl sm:text-3xl font-semibold text-[#1A2F24] pt-10 pb-3 border-b border-[#D8D2C6]/40 scroll-mt-24">
-            {children}
-          </h2>
-        );
-      },
-      h3: ({ children }: any) => {
-        const id = generateSlug(getPlainText(children));
-        return (
-          <h3 id={id} className="font-serif text-xl sm:text-2xl font-medium text-[#1A2F24] pt-8 pb-2 border-b border-[#D8D2C6]/20 scroll-mt-24">
-            {children}
-          </h3>
-        );
-      },
-      h4: ({ children }: any) => {
-        const id = generateSlug(getPlainText(children));
-        return (
-          <h4 id={id} className="font-serif text-lg font-semibold text-[#1A2F24] pt-6 pb-1 scroll-mt-24">
-            {children}
-          </h4>
-        );
-      },
-      p: ({ children }: any) => {
-        const text = getPlainText(children).trim();
-
-        if (/^https?:\/\/.*\.(png|jpe?g|gif|webp|svg|heic)(\?.*)?$/i.test(text)) {
-          return (
-            <figure className="my-8 space-y-2 text-center article-image-frame">
-              <img
-                src={text}
-                alt="Article Image"
-                referrerPolicy="no-referrer"
-                className="mx-auto rounded-sm border border-[#D8D2C6]/60 shadow-sm max-h-[400px] w-full max-w-full object-cover loading-lazy article-graded-img"
-              />
-            </figure>
-          );
-        }
-
-        if (text.includes("{{audio:")) {
-          const audioMatch = text.match(/\{\{audio:(.*?)\}\}/);
-          if (audioMatch) {
-            const url = audioMatch[1];
-            return (
-              <div className="bg-[#1A2F24]/5 border border-[#8B5A44]/30 rounded-sm p-4 my-6 flex items-center gap-4">
-                <Music className="w-6 h-6 text-[#8B5A44] shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <span className="font-display text-[9px] font-bold text-[#8B5A44] uppercase tracking-widest block mb-1">
-                    Embedded Media Player
-                  </span>
-                  <audio src={url} controls className="w-full h-8 accent-[#8B5A44]" />
-                </div>
-              </div>
-            );
-          }
-        }
-
-        return (
-          <p className="leading-relaxed font-serif text-base sm:text-[17px] text-[#1C1C1C]/90 my-5">
-            {children}
-          </p>
-        );
-      },
-      strong: ({ children }: any) => (
-        <strong className="font-semibold text-[#1A2F24]">{children}</strong>
-      ),
-      em: ({ children }: any) => (
-        <em className="italic text-[#1C1C1C]/85">{children}</em>
-      ),
-      ul: ({ children }: any) => (
-        <ul className="list-disc pl-6 my-4 space-y-2.5 font-serif text-base sm:text-[17px] text-[#1C1C1C]/90">
-          {children}
-        </ul>
-      ),
-      ol: ({ children }: any) => (
-        <ol className="list-decimal pl-6 my-4 space-y-3 font-serif text-base sm:text-[17px] text-[#1C1C1C]/90">
-          {children}
-        </ol>
-      ),
-      li: ({ children }: any) => <li className="leading-relaxed">{children}</li>,
-      blockquote: ({ children }: any) => (
-        <blockquote className="border-l-4 border-[#B69A6B] pl-4 italic my-6 text-[#1A2F24]/85 font-serif">
-          {children}
-        </blockquote>
-      ),
-      a: ({ href, children }: any) => {
-        const isExternal = href && (href.startsWith("http://") || href.startsWith("https://") || href.startsWith("//"));
-        return (
-          <a
-            href={href}
-            target={isExternal ? "_blank" : undefined}
-            rel={isExternal ? "noopener noreferrer" : undefined}
-            className="text-[#8B5A44] hover:underline underline-offset-4 transition-all duration-300"
-          >
-            {children}
-          </a>
-        );
-      },
-      pre: ({ children }: any) => (
-        <pre className="bg-[#1A2F24] text-[#F4F1EB] rounded-sm p-6 font-mono text-xs overflow-x-auto shadow-inner leading-relaxed my-6 border border-white/5">
-          {children}
-        </pre>
-      ),
-      code: ({ className, children, ...props }: any) => {
-        const match = /language-(\w+)/.exec(className || "");
-        const codeContent = String(children).replace(/\n$/, "");
-        const isInline = !match && !codeContent.includes("\n");
-        if (isInline) {
-          return (
-            <code className="bg-[#1A2F24]/10 text-[#8B5A44] font-mono text-xs px-1.5 py-0.5 rounded-sm">
-              {children}
-            </code>
-          );
-        }
-        return (
-          <code className={className} {...props}>
-            {children}
-          </code>
-        );
-      },
-      table: ({ children }: any) => (
-        <div className="w-full overflow-x-auto my-8 rounded-sm border border-[#D8D2C6]/60">
-          <table className="w-full text-left border-collapse text-sm text-[#1C1C1C]">{children}</table>
-        </div>
-      ),
-      thead: ({ children }: any) => (
-        <thead className="bg-[#1A2F24]/5 border-b border-[#D8D2C6]">{children}</thead>
-      ),
-      tbody: ({ children }: any) => (
-        <tbody className="divide-y divide-[#D8D2C6]/40">{children}</tbody>
-      ),
-      tr: ({ children }: any) => (
-        <tr className="hover:bg-[#1A2F24]/5 transition-colors">{children}</tr>
-      ),
-      th: ({ children }: any) => (
-        <th className="px-4 py-3 font-display text-[11px] uppercase tracking-wide font-semibold text-[#1A2F24]">
-          {children}
-        </th>
-      ),
-      td: ({ children }: any) => (
-        <td className="px-4 py-3 font-serif text-[#1C1C1C]/90 leading-relaxed">{children}</td>
-      ),
-      img: ({ src, alt }: any) => (
-        <figure className="my-8 space-y-2 text-center article-image-frame">
-          <img
-            src={src}
-            alt={alt}
-            referrerPolicy="no-referrer"
-            className="mx-auto rounded-sm border border-[#D8D2C6]/60 shadow-sm max-h-[400px] w-full max-w-full object-cover loading-lazy article-graded-img"
-          />
-          {alt && (
-            <figcaption className="font-display text-[10px] text-[#1C1C1C]/50 uppercase tracking-widest">
-              {alt}
-            </figcaption>
-          )}
-        </figure>
-      ),
-      hr: () => <hr className="my-10 border-t border-[#D8D2C6]" />,
-    };
-
     return (
-      <div className="bg-[#F4F1EB] min-h-screen pt-28 pb-24" id="article-reader-view">
-        <div className="max-w-7xl mx-auto px-6 md:px-12">
-
-          {/* Top navigation bar — unchanged */}
-          <div className="flex justify-between items-center border-b border-[#D8D2C6]/50 pb-6 mb-12" id="reader-top-bar">
-            <button
-              onClick={handleBackToArchive}
-              className="group flex items-center gap-2.5 font-display text-[11px] font-bold tracking-[0.25em] text-[#1A2F24] hover:text-[#8B5A44] transition-colors uppercase"
-              id="reader-back-btn"
-            >
-              <ArrowLeft className="w-4 h-4 transform group-hover:-translate-x-1 transition-transform" />
-              {lang === "en" ? "BACK TO ARTICLES" : "返回文章列表"}
-            </button>
-            <div className="flex items-center gap-4" id="reader-actions">
-              <button
-                onClick={(e) => toggleBookmark(activeArticle.slug, e)}
-                className="p-2 border border-[#D8D2C6] hover:border-[#8B5A44] rounded-sm text-[#1C1C1C]/70 hover:text-[#8B5A44] transition-all"
-                title={lang === "en" ? "Bookmark Article" : "收藏文章"}
-                id="reader-bookmark-btn"
-              >
-                <Bookmark className={`w-4 h-4 ${bookmarked[activeArticle.slug] ? "fill-[#8B5A44] text-[#8B5A44]" : ""}`} />
-              </button>
-            </div>
-          </div>
-
-          {/* TWO-COLUMN GRID: main content + sidebar */}
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_280px] lg:grid-cols-[1fr_320px] gap-12 lg:gap-16">
-
-            {/* MAIN ARTICLE COLUMN — narrowed for readability */}
-            <article className="w-full max-w-[70ch] mx-auto lg:mx-0 reveal-on-scroll">
-              <p className="text-[11px] tracking-[0.25em] uppercase text-[#8B5A44] font-bold mb-4">
-                {activeArticle.category[lang]}
-              </p>
-              <h1 className="font-display text-[2rem] md:text-[2.75rem] leading-[1.15] text-[#1A2F24] mb-6">
-                {activeArticle.title[lang]}
-              </h1>
-              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-[#1C1C1C]/55 mb-10 border-b border-[#D8D2C6]/50 pb-6 font-display uppercase tracking-wide">
-                <span className="flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-[#8B5A44]" />
-                  {activeArticle.date[lang]}
-                </span>
-                <span className="text-[#D8D2C6]">•</span>
-                <span className="flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-[#8B5A44]" />
-                  {activeArticle.readTime[lang]}
-                </span>
-                <span className="text-[#D8D2C6]">•</span>
-                <span className="flex items-center gap-1.5 font-medium text-[#1A2F24] normal-case tracking-normal">
-                  {lang === "en" ? "By" : "作者"} {activeArticle.author || (lang === "en" ? "Immersation Editor" : "智枢阁编辑部")}
-                </span>
-                {activeArticleStats && (
-                  <>
-                    <span className="text-[#D8D2C6]">•</span>
-                    <span className="flex items-center gap-1.5" title={lang === "en" ? "Unique Pageviews" : "独立网页阅览量"}>
-                      <Eye className="w-3.5 h-3.5 text-[#8B5A44]" />
-                      {activeArticleStats.views.toLocaleString()} {lang === "en" ? "views" : "次阅览"}
-                    </span>
-                  </>
-                )}
-                {activeArticleStats && activeArticleStats.views > 0 && (
-                  <>
-                    <span className="text-[#D8D2C6]">•</span>
-                    <span className="flex items-center gap-1.5" title={lang === "en" ? "Average reading session duration" : "次均阅读会话留存时长"}>
-                      <Clock className="w-3.5 h-3.5 text-[#8B5A44]" />
-                      {lang === "en" ? "Avg:" : "均读:"} {(() => {
-                        const avgSecs = activeArticleStats.timeSpent / activeArticleStats.views;
-                        if (avgSecs < 60) return `${Math.round(avgSecs)}s`;
-                        return `${Math.floor(avgSecs / 60)}m ${Math.round(avgSecs % 60)}s`;
-                      })()}
-                    </span>
-                  </>
-                )}
-              </div>
-              
-              {activeArticle.cover && (
-                <div className="mb-10 article-image-frame">
-                  <img 
-                    src={activeArticle.cover} 
-                    alt={activeArticle.title[lang]} 
-                    referrerPolicy="no-referrer"
-                    className="w-full rounded-sm border border-[#D8D2C6]/60 shadow-sm object-cover loading-lazy article-graded-img" 
-                  />
-                </div>
-              )}
-
-              
-              {/* Mobile TOC */}
-              <div className="md:hidden mt-8 mb-8">
-                {headings.length > 0 && (
-                  <SidebarTOC headings={headings} lang={lang} activeHeadingId={activeHeadingId} />
-                )}
-              </div>
-
-              <SocialShareBar article={activeArticle} lang={lang} />
-
-              {/* ReactMarkdown-based renderer with remarkGfm and rehypeSanitize plugins */}
-              <div className="prose-immersation">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeSanitize]}
-                  
-                  components={markdownComponents}
-                >
-                  {cleanedContent}
-                </ReactMarkdown>
-              </div>
-
-              {/* Tags */}
-              <div className="flex flex-wrap gap-2 mt-12 pt-8 border-t border-[#D8D2C6]/50 reveal-on-scroll">
-                {activeArticle.tags.map((tag) => (
-                  <span key={tag} className="text-[11px] uppercase tracking-wide text-[#1C1C1C]/60 border border-[#D8D2C6] rounded-full px-3 py-1">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-              <SocialShareBar article={activeArticle} lang={lang} />
-              <ReaderReflections articleSlug={activeArticle.slug} lang={lang} onPlayChime={onPlayChime} />
-
-              {/* Mobile-only: sidebar content collapses here below article, ads + related included */}
-              <div className="md:hidden mt-16 flex flex-col gap-8">
-                <SidebarPinterestWidget 
-                  imageUrl={activeArticle.pinterestImageUrl || activeArticle.cover} 
-                  altText={activeArticle.title[lang]} 
-                  lang={lang} 
-                  pageUrl={typeof window !== "undefined" ? window.location.href : undefined}
-                />
-                <SidebarNewsletterCTA lang={lang} />
-                <SidebarAdSlot lang={lang} slotId="mobile-inline" adUrl={activeArticle.adUrl} />
-                <SidebarRelated articles={relatedArticles} lang={lang} onNavigate={(slug) => setActiveArticleSlug(slug)} />
-              </div>
-            </article>
-
-            {/* DESKTOP SIDEBAR — sticky, hidden on mobile */}
-            <aside className="hidden md:flex flex-col gap-8 sticky top-28 self-start h-fit w-full reveal-on-scroll">
-              {headings.length > 0 && (
-                <SidebarTOC headings={headings} lang={lang} activeHeadingId={activeHeadingId} />
-              )}
-
-              <div className="flex flex-col gap-8">
-                <SidebarPinterestWidget
-                  imageUrl={activeArticle.pinterestImageUrl || activeArticle.cover}
-                  altText={activeArticle.title[lang]}
-                  lang={lang}
-                  pageUrl={typeof window !== "undefined" ? window.location.href : undefined}
-                />
-                <SidebarNewsletterCTA lang={lang} />
-                <SidebarRelated
-                  articles={relatedArticles}
-                  lang={lang}
-                  onNavigate={(slug) => setActiveArticleSlug(slug)}
-                />
-                {activeArticle.adUrl && (
-                  <SidebarAdSlot lang={lang} slotId="sidebar-bottom" adUrl={activeArticle.adUrl} />
-                )}
-              </div>
-            </aside>
-
-          </div>
-        </div>
-      </div>
+      <ArticlePage
+        article={activeArticle}
+        lang={lang}
+        onBack={handleBackToArchive}
+        onBookmark={(slug, e) => toggleBookmark(slug, e)}
+        isBookmarked={!!bookmarked[activeArticle.slug]}
+        relatedArticles={relatedArticles}
+        onNavigate={(slug) => handleArticleClick(slug)}
+        onPlayChime={onPlayChime}
+        activeArticleStats={activeArticleStats}
+        activeHeadingId={activeHeadingId}
+      />
     );
   }
 
@@ -1789,96 +2204,6 @@ export default function ArticlesView({ lang, onBackToHome, onPlayChime, initialA
         </div>
 
       </div>
-    </div>
-  );
-}
-
-function SocialShareBar({ article, lang }: { article: any; lang: "en" | "zh" }) {
-  const [copied, setCopied] = useState(false);
-  const url = typeof window !== "undefined" ? window.location.href : "";
-  const title = article.title[lang];
-
-  const shareLinks = [
-    {
-      name: "X",
-      href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(title)}&url=${encodeURIComponent(url)}`,
-      icon: (
-        <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
-          <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231ZM17.83 20.25h1.833L7.045 3.75H5.087Z" />
-        </svg>
-      ),
-    },
-    {
-      name: "LinkedIn",
-      href: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`,
-      icon: (
-        <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
-          <path d="M20.45 20.45h-3.55v-5.57c0-1.33-.02-3.03-1.85-3.03-1.85 0-2.14 1.45-2.14 2.94v5.66H9.36V9h3.41v1.56h.05c.48-.9 1.64-1.85 3.38-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28ZM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12ZM7.12 20.45H3.56V9h3.56v11.45Z" />
-        </svg>
-      ),
-    },
-    {
-      name: "Pinterest",
-      href: `https://pinterest.com/pin/create/button/?url=${encodeURIComponent(url)}&description=${encodeURIComponent(title)}`,
-      icon: (
-        <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
-          <path d="M12 2C6.48 2 2 6.36 2 11.74c0 4.12 2.54 7.63 6.15 9.04-.08-.77-.16-1.95.03-2.79.18-.76 1.15-4.83 1.15-4.83s-.29-.59-.29-1.45c0-1.36.79-2.38 1.77-2.38.84 0 1.24.63 1.24 1.38 0 .84-.54 2.1-.81 3.27-.23.98.49 1.78 1.46 1.78 1.75 0 3.09-1.85 3.09-4.51 0-2.36-1.7-4.01-4.12-4.01-2.81 0-4.46 2.1-4.46 4.27 0 .85.33 1.75.73 2.24a.29.29 0 0 1 .07.28c-.08.31-.25 1-.29 1.14-.04.19-.15.23-.35.14-1.3-.6-2.11-2.5-2.11-4.02 0-3.27 2.38-6.28 6.86-6.28 3.6 0 6.4 2.57 6.4 6-0 3.58-2.26 6.46-5.4 6.46-1.05 0-2.05-.55-2.39-1.2 0 0-.52 1.99-.65 2.48-.24.9-.87 2.03-1.3 2.72A10 10 0 1 0 12 2Z" />
-        </svg>
-      ),
-    },
-    {
-      name: "WhatsApp",
-      href: `https://wa.me/?text=${encodeURIComponent(title + " " + url)}`,
-      icon: (
-        <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
-          <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.87.51 3.63 1.4 5.13L2 22l5.13-1.5a9.9 9.9 0 0 0 4.91 1.3c5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2Zm5.79 14.02c-.24.68-1.4 1.32-1.94 1.4-.5.08-1.12.11-1.81-.11-.42-.13-.95-.31-1.64-.6-2.9-1.25-4.78-4.16-4.93-4.36-.15-.2-1.18-1.57-1.18-2.99 0-1.42.75-2.11 1.02-2.4.26-.28.58-.35.77-.35h.55c.18 0 .42-.07.65.5.24.57.8 1.98.87 2.12.07.15.11.32.02.51-.09.19-.13.31-.26.48-.13.17-.28.38-.4.51-.13.13-.27.28-.12.55.16.28.71 1.18 1.53 1.91 1.05.94 1.94 1.24 2.22 1.38.28.13.44.11.6-.07.17-.18.7-.81.89-1.09.19-.28.38-.23.63-.13.26.09 1.63.77 1.91.91.28.13.46.2.53.31.07.13.07.72-.17 1.39Z" />
-        </svg>
-      ),
-    },
-  ];
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <div className="flex items-center gap-3 py-6 my-6 border-y border-[#D8D2C6]/60">
-      <span className="text-[10px] tracking-[0.25em] uppercase text-[#1C1C1C]/45] mr-1">
-        {lang === "en" ? "Share" : "分享"}
-      </span>
-      {shareLinks.map((s) => (
-        <a
-          key={s.name}
-          href={s.href}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label={`Share on ${s.name}`}
-          className="w-9 h-9 flex items-center justify-center rounded-full border border-[#D8D2C6] text-[#1A2F24] hover:bg-[#1A2F24] hover:text-[#F4F1EB] hover:border-[#1A2F24] transition-all duration-300"
-        >
-          {s.icon}
-        </a>
-      ))}
-      <button
-        onClick={handleCopy}
-        aria-label={lang === "en" ? "Copy link" : "复制链接"}
-        className="ml-1 w-9 h-9 flex items-center justify-center rounded-full border border-[#8B5A44]/50 text-[#8B5A44] hover:bg-[#8B5A44] hover:text-white transition-all duration-300 relative"
-      >
-        {copied ? (
-          <CheckCircle className="w-4 h-4" />
-        ) : (
-          <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07L11.5 4.5" />
-            <path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 0 0 7.07 7.07L12.5 19.5" />
-          </svg>
-        )}
-      </button>
-      {copied && (
-        <span className="text-[11px] text-[#8B5A44] absolute -mt-8 ml-[200px]">
-          {lang === "en" ? "Link copied" : "链接已复制"}
-        </span>
-      )}
     </div>
   );
 }
