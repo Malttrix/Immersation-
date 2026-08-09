@@ -1,0 +1,6 @@
+{
+  "name": "Immersation 智枢阁",
+  "description": "Immersation is a personal intelligence media brand for body, tool, and capital. Calm, structured knowledge systems for future-ready individuals.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

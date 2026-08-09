@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+# Disallow administrative and private API endpoints
+Disallow: /api/
+Disallow: /admin
+
+# Canonical Sitemap Location
+Sitemap: https://immersation.com/sitemap.xml
