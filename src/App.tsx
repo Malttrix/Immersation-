@@ -770,7 +770,7 @@ export default function App() {
       const newTx = {
         id: `TXN-${Math.floor(1000 + Math.random() * 9000)}`,
         email: userEmail || "support@immersation.com",
-        item: cartItems.map(item => item.title[lang]).join(", "),
+        item: cartItems.map(item => typeof item.title === "object" && item.title !== null ? (item.title[lang] || item.title.en || item.title.zh) : (item.title || "Item")).join(", "),
         amount: totalAmount,
         date: new Date().toISOString().split("T")[0],
         status: "Successful"
@@ -2067,7 +2067,7 @@ export default function App() {
                         {orderReceipt.map((item, idx) => (
                           <div key={idx} className="flex justify-between items-center text-xs">
                             <span className="font-serif text-[#1C1C1C]/80 truncate max-w-[220px]">
-                              {item.title[lang]}
+                              {typeof item.title === "object" && item.title !== null ? (item.title[lang] || item.title.en || item.title.zh) : (item.title || "")}
                             </span>
                             <span className="font-mono text-[#8B5A44] font-semibold">
                               ${(item.price || 19.00).toFixed(2)}
@@ -2334,7 +2334,7 @@ export default function App() {
                             </div>
                             <div className="flex-1 min-w-0">
                               <h5 className="font-serif text-sm font-semibold text-[#1A2F24] truncate">
-                                {item.title[lang]}
+                                {typeof item.title === "object" && item.title !== null ? (item.title[lang] || item.title.en || item.title.zh) : (item.title || "")}
                               </h5>
                               <p className="font-sans text-[10px] text-[#1C1C1C]/50 mt-1">
                                 {typeof item.format === "object" && item.format !== null ? item.format[lang] : (item.format || "Digital Volume")}
@@ -2823,7 +2823,7 @@ export default function App() {
                           </h5>
                           <div className="flex flex-col gap-3">
                             {books.map((book) => {
-                              const isUnlocked = unlockedBookIds.includes(book.id);
+                              const isUnlocked = unlockedBookIds.includes(book.id) || Number(book.price || 0) === 0;
                               return (
                                 <div 
                                   key={book.id}
@@ -2860,7 +2860,7 @@ export default function App() {
                                   </div>
                                   <div className="flex-1 min-w-0 text-left">
                                     <h6 className="font-serif text-xs font-normal text-[#1A2F24] truncate group-hover:text-[#8B5A44]">
-                                      {book.title[lang]}
+                                      {typeof book?.title === "object" && book?.title !== null ? (book.title[lang] || book.title.en || book.title.zh) : (book?.title || "")}
                                     </h6>
                                     <p className="text-[9px] font-sans truncate flex items-center gap-1 mt-0.5">
                                       {isUnlocked ? (
@@ -3790,7 +3790,7 @@ export default function App() {
                     {/* Header: Category & Date Indicator */}
                     <div className="flex justify-between items-center mb-8" id={`journal-card-header-${article.id}`}>
                       <span className="font-display text-[9px] font-bold tracking-[0.2em] text-[#8B5A44] uppercase bg-[#8B5A44]/5 px-3 py-1 rounded-sm">
-                        {article.category?.[lang]}
+                        {typeof article?.category === "object" && article?.category !== null ? (article.category[lang] || article.category.en) : (article?.category || "ARTICLE")}
                       </span>
                       <span className="text-[10px] font-mono text-[#1C1C1C]/40">
                         {idx === 0 ? "JUL 2026" : idx === 1 ? "JUN 2026" : "MAY 2026"}
@@ -3799,19 +3799,19 @@ export default function App() {
 
                     {/* Slogan title */}
                     <h3 className="font-serif text-xl sm:text-2xl font-semibold text-[#1A2F24] leading-snug mb-4 group-hover:text-[#8B5A44] transition-colors">
-                      {article.title[lang]}
+                      {typeof article?.title === "object" && article?.title !== null ? (article.title[lang] || article.title.en || article.title.zh) : (article?.title || "")}
                     </h3>
 
                     {/* Description */}
                     <p className="font-serif text-sm text-[#1C1C1C]/75 leading-relaxed mb-8 ink-text">
-                      {article.description[lang]}
+                      {typeof article?.description === "object" && article?.description !== null ? (article.description[lang] || article.description.en || article.description.zh) : (article?.description || "")}
                     </p>
                   </div>
 
                   {/* Footer: Read Time & Action Arrow */}
                   <div className="border-t border-[#D8D2C6]/30 pt-6 flex justify-between items-center" id={`journal-card-footer-${article.id}`}>
                     <span className="font-display text-[9px] font-bold tracking-widest text-[#1C1C1C]/50 uppercase">
-                      {article.readTime?.[lang]}
+                      {typeof article?.readTime === "object" && article?.readTime !== null ? (article.readTime[lang] || article.readTime.en) : (article?.readTime || "5 MIN")}
                     </span>
                     <div className="flex items-center gap-1.5 text-[#1A2F24] group-hover:text-[#8B5A44] transition-colors">
                       <span className="font-display text-[10px] font-bold tracking-wider uppercase opacity-0 group-hover:opacity-100 transition-opacity duration-300">
@@ -3913,10 +3913,10 @@ export default function App() {
                     </div>
                     
                     <h3 className={`font-serif text-lg tracking-wider font-semibold mb-2 ${book.textColor} leading-snug`}>
-                      {book.title[lang]}
+                      {typeof book?.title === "object" && book?.title !== null ? (book.title[lang] || book.title.en || book.title.zh) : (book?.title || "")}
                     </h3>
                     <p className={`font-serif italic text-[11px] px-1 opacity-75 ${book.textColor} leading-normal`}>
-                      {book.tagline?.[lang] || book.description?.[lang]}
+                      {typeof book?.tagline === "object" && book?.tagline !== null ? (book.tagline[lang] || book.tagline.en) : (typeof book?.description === "object" && book?.description !== null ? (book.description[lang] || book.description.en) : (book?.tagline || book?.description || ""))}
                     </p>
                   </div>
 
@@ -3939,10 +3939,10 @@ export default function App() {
                 {/* Companion description text on page (aligned under the book cover) */}
                 <div className="mt-6 text-center max-w-[260px] flex flex-col items-center">
                   <h4 className="font-display text-xs font-semibold uppercase tracking-widest text-[#1A2F24] mb-2 group-hover:text-[#8B5A44] transition-colors">
-                    {book.title[lang]}
+                    {typeof book?.title === "object" && book?.title !== null ? (book.title[lang] || book.title.en || book.title.zh) : (book?.title || "")}
                   </h4>
                   <p className="font-sans text-xs text-[#1C1C1C]/75 leading-relaxed">
-                    {book.description[lang]}
+                    {typeof book?.description === "object" && book?.description !== null ? (book.description[lang] || book.description.en || book.description.zh) : (book?.description || "")}
                   </p>
                   
                   {/* Premium Reading Actions */}

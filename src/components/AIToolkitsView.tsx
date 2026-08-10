@@ -616,19 +616,19 @@ export default function AIToolkitsView({
                   <div>
                     <div className="flex justify-between items-center gap-2 mb-3">
                       <span className="font-display text-[9px] uppercase font-bold tracking-[0.15em] text-[#8B5A44]">
-                        {tk.format[lang]}
+                        {typeof tk.format === "object" && tk.format !== null ? ((tk.format as any)[lang] || (tk.format as any).en) : String(tk.format || "")}
                       </span>
                       <span className="text-[9px] text-[#1C1C1C]/45 font-mono uppercase">
-                        {lang === "en" ? `LEVEL: ${tk.level.en}` : `推荐难度: ${tk.level.zh}`}
+                        {lang === "en" ? `LEVEL: ${typeof tk.level === "object" && tk.level !== null ? ((tk.level as any).en || (tk.level as any).zh) : String(tk.level || "")}` : `推荐难度: ${typeof tk.level === "object" && tk.level !== null ? ((tk.level as any).zh || (tk.level as any).en) : String(tk.level || "")}`}
                       </span>
                     </div>
 
                     <h3 className="font-serif text-base font-normal text-[#1A2F24] mb-3 leading-snug">
-                      {tk.title[lang]}
+                      {typeof tk.title === "object" && tk.title !== null ? ((tk.title as any)[lang] || (tk.title as any).en || (tk.title as any).zh) : String(tk.title || "")}
                     </h3>
 
                     <p className="font-serif text-xs text-[#1C1C1C]/65 leading-relaxed mb-6">
-                      {tk.useCase[lang]}
+                      {typeof tk.useCase === "object" && tk.useCase !== null ? ((tk.useCase as any)[lang] || (tk.useCase as any).en || (tk.useCase as any).zh) : String(tk.useCase || "")}
                     </p>
                   </div>
 
@@ -636,7 +636,7 @@ export default function AIToolkitsView({
                   <div className="border-t border-[#D8D2C6]/40 pt-4 mt-auto">
                     <div className="flex justify-between items-center mb-4">
                       <span className="text-[10px] bg-[#1A2F24]/5 text-[#1A2F24] font-mono px-2 py-0.5 rounded-xs">
-                        {tk.badge[lang]}
+                        {typeof tk.badge === "object" && tk.badge !== null ? ((tk.badge as any)[lang] || (tk.badge as any).en) : String(tk.badge || "")}
                       </span>
                       <span className="text-[9px] font-mono text-[#1C1C1C]/50 uppercase">PILLAR: {tk.pillar}</span>
                     </div>
@@ -644,9 +644,11 @@ export default function AIToolkitsView({
                     <div className="flex gap-2">
                       <button 
                         onClick={() => handleAction(() => {
+                          const titleStr = typeof tk.title === "object" && tk.title !== null ? ((tk.title as any).en || (tk.title as any).zh || "") : String(tk.title || "");
+                          const titleZhStr = typeof tk.title === "object" && tk.title !== null ? ((tk.title as any).zh || (tk.title as any).en || "") : String(tk.title || "");
                           alert(lang === "en" 
-                            ? `Opening instant preview of "${tk.title.en}" markdown and structure specs...` 
-                            : `正在拉取并预览 “${tk.title.zh}” 的技术框架参数清单……`);
+                            ? `Opening instant preview of "${titleStr}" markdown and structure specs...` 
+                            : `正在拉取并预览 “${titleZhStr}” 的技术框架参数清单……`);
                         })}
                         className="flex-1 border border-[#D8D2C6] hover:border-[#8B5A44] text-[#1C1C1C] font-display text-[9px] font-semibold uppercase tracking-[0.15em] py-2.5 rounded-sm transition-colors text-center cursor-pointer bg-white/20 hover:bg-white"
                       >
@@ -654,10 +656,13 @@ export default function AIToolkitsView({
                       </button>
                       <button 
                         onClick={() => {
+                          const titleStr = typeof tk.title === "object" && tk.title !== null ? ((tk.title as any).en || (tk.title as any).zh || "") : String(tk.title || "");
+                          const titleZhStr = typeof tk.title === "object" && tk.title !== null ? ((tk.title as any).zh || (tk.title as any).en || "") : String(tk.title || "");
+                          const currentLangTitle: string = typeof tk.title === "object" && tk.title !== null ? ((tk.title as any)[lang] || (tk.title as any).en || "") : String(tk.title || "");
                           if (tk.isFree) {
-                            handleAction(() => alert(lang === "en" ? `Initiating secure download of "${tk.title.en}" free package...` : `正在打包免费试用配置文件 “${tk.title.zh}” 并初始化离线下载……`));
+                            handleAction(() => alert(lang === "en" ? `Initiating secure download of "${titleStr}" free package...` : `正在打包免费试用配置文件 “${titleZhStr}” 并初始化离线下载……`));
                           } else {
-                            triggerAddToCart(tk.id, tk.title[lang]);
+                            triggerAddToCart(tk.id, currentLangTitle);
                           }
                         }}
                         className="flex-1 bg-[#1A2F24] hover:bg-[#8B5A44] text-[#F4F1EB] font-display text-[9px] font-semibold uppercase tracking-[0.15em] py-2.5 rounded-sm transition-colors text-center flex items-center justify-center gap-1 cursor-pointer"

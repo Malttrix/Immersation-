@@ -196,7 +196,9 @@ const BookCoverMock = ({ book, size = "sm", locked = false, lang }: { book: any,
       <span className={`${brandText} font-display font-semibold text-white/55 tracking-wider`}>IMMERSATION</span>
       <div className="my-auto flex flex-col items-center">
         {locked ? <Lock className={`${iconSize} text-white/90`} /> : <BookOpen className={`${iconSize} text-white/90`} />}
-        <span className={`${titleText} font-serif font-bold text-white leading-tight truncate w-full text-center`}>{book.title[lang]}</span>
+        <span className={`${titleText} font-serif font-bold text-white leading-tight truncate w-full text-center`}>
+          {typeof book?.title === "object" && book?.title !== null ? (book.title[lang] || book.title.en || book.title.zh) : (book?.title || "")}
+        </span>
       </div>
       <span className={`${volText} font-mono text-white/40 text-right`}>{locked ? "VOL. LOCK" : "VOL. " + (book.id === "starter-kit" ? "01" : book.id === "workflow-playbook" ? "02" : book.id === "longevity-reset" ? "03" : "04")}</span>
     </div>
@@ -276,7 +278,7 @@ export default function ReadingRoomView({
   // If loaded DB chapters from book_chapters table, use those. Otherwise, fallback to the book's embedded chapters, local booksContent, or starter-kit fallback.
   const activeBookPages = dbChapters || currentBook.chapters || booksContent[activeBookId] || booksContent["starter-kit"];
   
-  const isUnlocked = unlockedBookIds.includes(activeBookId);
+  const isUnlocked = unlockedBookIds.includes(activeBookId) || Number(currentBook?.price || 0) === 0;
   
   // Dynamically calculate maxPages: 2 pages rendered per spread (if unlocked, activeBookPages.length * 2 pages; if locked, 2 pages)
   const totalRenderedPages = isUnlocked ? activeBookPages.length * 2 : 2;
@@ -417,7 +419,8 @@ export default function ReadingRoomView({
           <div className="space-y-3">
             {activeProductBooks.map((book) => {
               const isActive = book.id === activeBookId;
-              const isBookUnlocked = unlockedBookIds.includes(book.id);
+              const bookPriceVal = Number(book?.price || 0);
+              const isBookUnlocked = unlockedBookIds.includes(book.id) || bookPriceVal === 0;
               return (
                 <button
                   key={book.id}
@@ -432,12 +435,12 @@ export default function ReadingRoomView({
                   <BookCoverMock book={book} size="sm" locked={!isBookUnlocked} lang={lang} />
                   <div className="flex-1 min-w-0 pt-0.5">
                     <h3 className="font-serif text-[11px] leading-[1.8] font-semibold leading-snug truncate">
-                      {book.title[lang]}
+                      {typeof book?.title === "object" && book?.title !== null ? (book.title[lang] || book.title.en || book.title.zh) : (book?.title || "")}
                     </h3>
                     <p className={`font-serif italic text-[8px] mt-1 truncate ${isActive ? "text-[#FAF8F5]/70" : "text-[#1C1C1C]/50"}`}>
                       {isBookUnlocked 
-                        ? book.tagline[lang] 
-                        : (lang === "en" ? `Premium Volume • $${(book.price || 19.00).toFixed(2)}` : `高阶内容 • $${(book.price || 19.00).toFixed(2)}`)}
+                        ? (typeof book?.tagline === "object" && book?.tagline !== null ? (book.tagline[lang] || book.tagline.en) : (book?.tagline || (lang === "en" ? "Free Public Access" : "免费公开查阅")))
+                        : (lang === "en" ? `Premium Volume • $${bookPriceVal.toFixed(2)}` : `高阶内容 • $${bookPriceVal.toFixed(2)}`)}
                     </p>
                   </div>
                   {/* Subtle wood shelf shadow decoration inside the active button */}
@@ -504,19 +507,19 @@ export default function ReadingRoomView({
                       {/* Header info */}
                       <div className="flex items-center justify-between border-b border-[#D8D2C6]/40 pb-3 mb-4 shrink-0">
                         <span className="font-display text-[8px] font-bold tracking-[0.15em] text-[#8B5A44]">
-                          {page.chapterLabel[lang]}
+                          {typeof page?.chapterLabel === "object" && page?.chapterLabel !== null ? (page.chapterLabel[lang] || page.chapterLabel.en) : (page?.chapterLabel || "")}
                         </span>
                         <span className="font-serif italic text-[8px] text-[#1C1C1C]/40 truncate max-w-[150px]">
-                          {currentBook.title[lang]}
+                          {typeof currentBook?.title === "object" && currentBook?.title !== null ? (currentBook.title[lang] || currentBook.title.en) : (currentBook?.title || "")}
                         </span>
                       </div>
 
                       {/* Chapter Title & Left Text Content */}
                       <div className={"flex-1 overflow-y-auto min-h-0 pr-2 scrollbar-thin " + fontClasses[fontSize]}>
                         <h2 className="font-serif text-[15px] sm:text-base lg:text-xl text-[#1A2F24] tracking-tight leading-snug mb-4">
-                          {page.title[lang]}
+                          {typeof page?.title === "object" && page?.title !== null ? (page.title[lang] || page.title.en) : (page?.title || "")}
                         </h2>
-                        {renderChapterContent(page.leftContentMarkdown[lang], fontSize)}
+                        {renderChapterContent(typeof page?.leftContentMarkdown === "object" && page?.leftContentMarkdown !== null ? (page.leftContentMarkdown[lang] || page.leftContentMarkdown.en || "") : (page?.leftContentMarkdown || ""), fontSize)}
                       </div>
 
                       {/* Left Page Number footer */}
@@ -531,7 +534,7 @@ export default function ReadingRoomView({
                       {/* Header info */}
                       <div className="flex items-center justify-between border-b border-[#D8D2C6]/40 pb-3 mb-4 shrink-0">
                         <span className="font-serif italic text-[8px] text-[#1C1C1C]/40 truncate max-w-[150px]">
-                          {page.title[lang]}
+                          {typeof page?.title === "object" && page?.title !== null ? (page.title[lang] || page.title.en) : (page?.title || "")}
                         </span>
                         <span className="font-display text-[8px] tracking-[0.2em] font-semibold text-[#8B5A44] uppercase">
                           IMMERSATION 智枢
@@ -540,7 +543,7 @@ export default function ReadingRoomView({
 
                       {/* Right Text Content */}
                       <div className={"flex-1 overflow-y-auto min-h-0 pr-2 scrollbar-thin " + fontClasses[fontSize]}>
-                        {renderChapterContent(page.rightContentMarkdown[lang], fontSize)}
+                        {renderChapterContent(typeof page?.rightContentMarkdown === "object" && page?.rightContentMarkdown !== null ? (page.rightContentMarkdown[lang] || page.rightContentMarkdown.en || "") : (page?.rightContentMarkdown || ""), fontSize)}
                       </div>
 
                       {/* Right Page Number footer */}
@@ -559,7 +562,7 @@ export default function ReadingRoomView({
                         {lang === "en" ? "VOLUME LOCKED" : "著作已锁"}
                       </span>
                       <span className="font-serif italic text-[8px] text-[#1C1C1C]/40 truncate max-w-[150px]">
-                        {currentBook.title[lang]}
+                        {typeof currentBook?.title === "object" && currentBook?.title !== null ? (currentBook.title[lang] || currentBook.title.en) : (currentBook?.title || "")}
                       </span>
                     </div>
 
@@ -567,10 +570,10 @@ export default function ReadingRoomView({
                       <BookCoverMock book={currentBook} size="lg" locked={true} lang={lang} />
                       
                       <h3 className="font-serif text-[13px] leading-[1.85] sm:text-[15px] text-[#1A2F24] font-semibold tracking-tight leading-snug mb-2">
-                        {currentBook.title[lang]}
+                        {typeof currentBook?.title === "object" && currentBook?.title !== null ? (currentBook.title[lang] || currentBook.title.en) : (currentBook?.title || "")}
                       </h3>
                       <p className="font-serif italic text-[8px] text-[#8B5A44] mb-3">
-                        {currentBook.tagline[lang]}
+                        {typeof currentBook?.tagline === "object" && currentBook?.tagline !== null ? (currentBook.tagline[lang] || currentBook.tagline.en) : (currentBook?.tagline || "")}
                       </p>
                       <p className="font-sans text-[#1C1C1C]/60 max-w-xs">
                         {lang === "en" 
@@ -618,7 +621,7 @@ export default function ReadingRoomView({
                         <div className="flex items-baseline gap-1 mt-1">
                           <span className="text-[13px] leading-[1.85] font-serif text-[#1C1C1C]/60 font-semibold">$</span>
                           <span className="text-2xl font-serif text-[#1A2F24] font-normal tracking-tight">
-                            {(currentBook.price || 19.00).toFixed(2)}
+                            {(Number(currentBook?.price || 0)).toFixed(2)}
                           </span>
                         </div>
                       </div>

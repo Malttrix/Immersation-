@@ -437,11 +437,11 @@ export default function WealthPillarView({
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-8">
             {capitalArticles.map((article) => {
-              const artTitle = article.title[lang] || article.title.en;
-              const artExcerpt = article.excerpt[lang] || article.excerpt.en;
-              const artCategory = article.category ? (article.category[lang] || article.category.en) : "CAPITAL";
-              const artDate = article.date ? (article.date[lang] || article.date.en) : "";
-              const artReadTime = article.readTime ? (article.readTime[lang] || article.readTime.en) : "";
+              const artTitle = typeof article.title === "object" && article.title !== null ? (article.title[lang] || article.title.en || article.title.zh) : (article.title || "");
+              const artExcerpt = typeof article.excerpt === "object" && article.excerpt !== null ? (article.excerpt[lang] || article.excerpt.en || article.excerpt.zh) : (article.excerpt || "");
+              const artCategory = article.category ? (typeof article.category === "object" && article.category !== null ? (article.category[lang] || article.category.en) : article.category) : "CAPITAL";
+              const artDate = article.date ? (typeof article.date === "object" && article.date !== null ? (article.date[lang] || article.date.en) : article.date) : "";
+              const artReadTime = article.readTime ? (typeof article.readTime === "object" && article.readTime !== null ? (article.readTime[lang] || article.readTime.en) : article.readTime) : "";
 
               return (
                 <div 

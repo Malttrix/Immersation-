@@ -23,6 +23,7 @@ import {
   FileSpreadsheet,
   RefreshCw,
   Send,
+  Copy,
   Upload,
   Globe,
   Key,
@@ -746,6 +747,8 @@ export default function AdminDashboard({
   } | null>(null);
 
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [copiedSql, setCopiedSql] = useState(false);
+  const [showSqlCode, setShowSqlCode] = useState(false);
 
   // Content Studio sub-tabs and states
   const [contentSubTab, setContentSubTab] = useState<"articles" | "newsletters" | "ebooks" | "comments">("articles");
@@ -1002,7 +1005,7 @@ export default function AdminDashboard({
   const [ebId, setEbId] = useState("");
   const [ebTitleEN, setEbTitleEN] = useState("");
   const [ebTitleZH, setEbTitleZH] = useState("");
-  const [ebPrice, setEbPrice] = useState(39.00);
+  const [ebPrice, setEbPrice] = useState<number | string>("");
   const [ebDescEN, setEbDescEN] = useState("");
   const [ebDescZH, setEbDescZH] = useState("");
   const [ebCover, setEbCover] = useState("");
@@ -1017,24 +1020,50 @@ export default function AdminDashboard({
   const [ebEpubConversionStatus, setEbEpubConversionStatus] = useState<string | null>(null);
   const [isConverting, setIsConverting] = useState(false);
 
-  const handleConvertEpub = async (productId: string, epubUrl: string) => {
+  const sanitizeEpubUrlInput = (rawUrl: string): string => {
+    if (!rawUrl) return "";
+    let clean = rawUrl.trim().replace(/^["']|["']$/g, "");
+    clean = clean.replace(/([^:]\/+)(httpdocs|public_html|www)(\/|$)/gi, "$1");
+    clean = clean.replace(/(https?:\/\/)([^/]+)\/+/gi, "$1$2/");
+    return clean;
+  };
+
+  const handleConvertEpub = async (productId: string, rawEpubUrl: string) => {
     if (!productId) {
       alert(lang === "en" ? "Please save or set the volume ID first before converting." : "请在转换前先设置产品 Volume ID（Slug）。");
       return;
     }
-    if (!epubUrl) {
+    if (!rawEpubUrl) {
       alert(lang === "en" ? "Please enter a valid EPUB file URL." : "请输入有效的 EPUB 文件链接。");
       return;
     }
+
+    const epubUrl = sanitizeEpubUrlInput(rawEpubUrl);
+
+    // Sync sanitized URL back to state if cleaned
+    if (epubUrl !== rawEpubUrl) {
+      setEbEpubSourceUrl(epubUrl);
+      if (editingProduct) {
+        setEditingProduct({ ...editingProduct, epubSourceUrl: epubUrl });
+      }
+    }
+
     setIsConverting(true);
     setEbEpubConversionStatus(null);
     try {
+      const targetProduct = books.find((b: any) => b.id === productId) || editingProduct || editingEbook;
       const response = await fetch("/api/convert-epub", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ productId, epubUrl })
+        body: JSON.stringify({ 
+          productId, 
+          epubUrl,
+          productTitle: targetProduct?.title || { en: ebTitleEN, zh: ebTitleZH },
+          productDescription: targetProduct?.description || { en: ebDescEN, zh: ebDescZH },
+          chaptersText: ebChapters || (Array.isArray(targetProduct?.chapters) ? targetProduct.chapters.map((c: any) => `${c.time || ""} ${c.title || ""}`).join("\n") : "")
+        })
       });
       const data = await response.json();
       if (data.success) {
@@ -1256,7 +1285,7 @@ export default function AdminDashboard({
     setEbId(`eb-${Date.now()}`);
     setEbTitleEN("");
     setEbTitleZH("");
-    setEbPrice(39.00);
+    setEbPrice("");
     setEbDescEN("");
     setEbDescZH("");
     setEbCover("");
@@ -1356,7 +1385,7 @@ export default function AdminDashboard({
     setEbId(eb.id || "");
     setEbTitleEN(eb.title?.en || "");
     setEbTitleZH(eb.title?.zh || "");
-    setEbPrice(eb.price || 39.00);
+    setEbPrice(eb.price !== undefined && eb.price !== null ? eb.price : "");
     setEbDescEN(eb.description?.en || "");
     setEbDescZH(eb.description?.zh || "");
     setEbCover(eb.cover || "");
@@ -1572,10 +1601,11 @@ export default function AdminDashboard({
     setNewsletterIssues(newNewsletters);
     localStorage.setItem("immersation_newsletters_v2", JSON.stringify(newNewsletters));
     
+    const newsletterLogTitle = typeof payload.title === "object" && payload.title !== null ? (payload.title.en || payload.title.zh || "Newsletter") : (payload.title || "Newsletter");
     if (editingNewsletter) {
-      addAuditLog("Edit Newsletter", `Updated newsletter issue "${payload.title.en}"${msgSuffix}`);
+      addAuditLog("Edit Newsletter", `Updated newsletter issue "${newsletterLogTitle}"${msgSuffix}`);
     } else {
-      addAuditLog("Create Newsletter", `Created newsletter issue "${payload.title.en}"${msgSuffix}`);
+      addAuditLog("Create Newsletter", `Created newsletter issue "${newsletterLogTitle}"${msgSuffix}`);
     }
 
     setShowNewsletterForm(false);
@@ -1595,9 +1625,11 @@ export default function AdminDashboard({
     const payload = {
       id: ebId,
       title: { en: ebTitleEN, zh: ebTitleZH },
-      price: Number(ebPrice),
+      tagline: { en: ebDescEN ? ebDescEN.substring(0, 50) : ebTitleEN, zh: ebDescZH ? ebDescZH.substring(0, 50) : ebTitleZH },
+      price: ebPrice === "" || ebPrice === null || ebPrice === undefined ? 0 : (isNaN(Number(ebPrice)) ? 0 : Number(ebPrice)),
       description: { en: ebDescEN, zh: ebDescZH },
       cover: ebCover || "https://cms.immersation.com/wp-content/uploads/2026/07/IMMERSATION-LOGO-Light-scaled.png",
+      coverImageUrl: ebCover || "https://cms.immersation.com/wp-content/uploads/2026/07/IMMERSATION-LOGO-Light-scaled.png",
       chapters: parsedChapters,
       fileUrl: ebFileUrl,
       downloadFileUrl: ebFileUrl, // Sync both download file fields for security
@@ -1616,7 +1648,31 @@ export default function AdminDashboard({
         supabase.from("products").update(payload).eq("id", editingEbook.id).then(({ error }) => {
           if (error) {
             console.warn("Supabase edit product error:", error);
-            setSyncError(`products (ebooks) table update: ${error.message || String(error)}`);
+            // Fallback retry with basic columns if missing new columns in Supabase
+            const basePayload = {
+              id: payload.id,
+              title: payload.title,
+              tagline: payload.tagline,
+              price: payload.price,
+              description: payload.description,
+              cover: payload.cover,
+              fileUrl: payload.fileUrl
+            };
+            supabase.from("products").update(basePayload).eq("id", editingEbook.id).then(({ error: err2 }) => {
+              if (err2) {
+                // Second minimal fallback without cover column if cover is missing in database schema
+                const minPayload = { id: payload.id, title: payload.title, tagline: payload.tagline, price: payload.price };
+                supabase.from("products").update(minPayload).eq("id", editingEbook.id).then(({ error: err3 }) => {
+                  if (err3) {
+                    setSyncError(`products (ebooks) table update: ${error.message || String(error)}`);
+                  } else {
+                    setSyncError(`products (ebooks) table update: ${error.message || String(error)} (Core title & price synced as fallback)`);
+                  }
+                });
+              } else {
+                setSyncError(`products (ebooks) table update: ${error.message || String(error)} (Core product fields synced as fallback)`);
+              }
+            });
           }
         });
       }
@@ -1627,7 +1683,29 @@ export default function AdminDashboard({
         supabase.from("products").insert([payload]).then(({ error }) => {
           if (error) {
             console.warn("Supabase create product error:", error);
-            setSyncError(`products (ebooks) table insert: ${error.message || String(error)}`);
+            const basePayload = {
+              id: payload.id,
+              title: payload.title,
+              tagline: payload.tagline,
+              price: payload.price,
+              description: payload.description,
+              cover: payload.cover,
+              fileUrl: payload.fileUrl
+            };
+            supabase.from("products").insert([basePayload]).then(({ error: err2 }) => {
+              if (err2) {
+                const minPayload = { id: payload.id, title: payload.title, tagline: payload.tagline, price: payload.price };
+                supabase.from("products").insert([minPayload]).then(({ error: err3 }) => {
+                  if (err3) {
+                    setSyncError(`products (ebooks) table insert: ${error.message || String(error)}`);
+                  } else {
+                    setSyncError(`products (ebooks) table insert: ${error.message || String(error)} (Core title & price synced as fallback)`);
+                  }
+                });
+              } else {
+                setSyncError(`products (ebooks) table insert: ${error.message || String(error)} (Core product fields synced as fallback)`);
+              }
+            });
           }
         });
       }
@@ -1821,11 +1899,73 @@ export default function AdminDashboard({
                     ? `A request to save or load database records skipped a live sync: "${syncError}". Don't worry—local storage fell back safely so all features are perfectly active!` 
                     : `保存或加载数据库记录时跳过了实时同步：'${syncError}'。不用担心——本地缓存已安全承接，所有功能完全正常且可供测试！`}
                 </p>
-                <div className="mt-2 text-[10px] text-stone-500 bg-white/60 p-2 border border-amber-100 rounded-xs font-mono">
-                  {lang === "en" 
-                    ? "To resolve this in production, make sure to execute the SQL statements in supabase_schema.sql inside your Supabase SQL Editor." 
-                    : "若要在生产环境中彻底同步，请确保已在 Supabase 的 SQL 编辑器中运行了 supabase_schema.sql 内的最新 SQL 语句。"}
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => {
+                      const sqlFix = `-- Run this in your Supabase SQL Editor to add all missing product columns:
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS title JSONB;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS tagline JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE public.products ALTER COLUMN tagline DROP NOT NULL;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS price NUMERIC DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS description JSONB;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS cover TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "coverImageUrl" TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS chapters JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "fileUrl" TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "downloadFileUrl" TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "discountPercent" NUMERIC DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "format" JSONB;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "textColor" TEXT DEFAULT 'text-[#F4F1EB]';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "accentColor" TEXT DEFAULT 'text-[#B69A6B]';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubSourceUrl" TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "lastConvertedAt" TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT;`;
+                      navigator.clipboard.writeText(sqlFix);
+                      setCopiedSql(true);
+                      setTimeout(() => setCopiedSql(false), 3000);
+                    }}
+                    className="bg-[#1A2F24] hover:bg-[#8B5A44] text-[#F4F1EB] font-mono text-[10px] font-semibold px-3 py-1.5 rounded-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    {copiedSql 
+                      ? (lang === "en" ? "✓ SQL Copied to Clipboard!" : "✓ 迁移 SQL 已复制到剪贴板！") 
+                      : (lang === "en" ? "Copy Quick Fix SQL" : "一键复制数据库修补 SQL")}
+                  </button>
+
+                  <button
+                    onClick={() => setShowSqlCode(!showSqlCode)}
+                    className="bg-white hover:bg-stone-100 text-stone-700 border border-stone-300 font-mono text-[10px] font-semibold px-3 py-1.5 rounded-xs transition-colors cursor-pointer"
+                  >
+                    {showSqlCode 
+                      ? (lang === "en" ? "Hide SQL Script" : "隐藏 SQL 脚本") 
+                      : (lang === "en" ? "View SQL Script" : "查看 SQL 修复脚本")}
+                  </button>
                 </div>
+
+                {showSqlCode && (
+                  <div className="mt-3 bg-[#1C1C1C] text-[#D8D2C6] p-3 rounded-xs text-[10px] font-mono overflow-x-auto relative">
+                    <div className="text-amber-400 font-bold mb-1">-- Copy and run in Supabase SQL Editor:</div>
+                    <pre className="whitespace-pre-wrap select-all leading-relaxed">
+{`ALTER TABLE public.products ADD COLUMN IF NOT EXISTS title JSONB;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS tagline JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE public.products ALTER COLUMN tagline DROP NOT NULL;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS price NUMERIC DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS description JSONB;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS cover TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "coverImageUrl" TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS chapters JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "fileUrl" TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "downloadFileUrl" TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "discountPercent" NUMERIC DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "format" JSONB;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "textColor" TEXT DEFAULT 'text-[#F4F1EB]';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "accentColor" TEXT DEFAULT 'text-[#B69A6B]';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubSourceUrl" TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "lastConvertedAt" TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT;`}
+                    </pre>
+                  </div>
+                )}
               </div>
               <button 
                 onClick={() => setSyncError(null)} 
@@ -2121,7 +2261,7 @@ export default function AdminDashboard({
                     </div>
                     <div>
                       <label className="block font-semibold mb-1">Chinese Title / 中文名称</label>
-                      <input type="text" name="titleZH" required defaultValue={editingProduct?.title.zh || ""} className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 focus:outline-none focus:border-[#8B5A44]" />
+                      <input type="text" name="titleZH" required defaultValue={editingProduct?.title?.zh || ""} className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 focus:outline-none focus:border-[#8B5A44]" />
                     </div>
                     
                     <div>
@@ -2232,7 +2372,7 @@ export default function AdminDashboard({
                     </div>
                     <div className="md:col-span-2">
                       <label className="block font-semibold mb-1">Chinese Description / 中文说明</label>
-                      <textarea name="descZH" rows={3} required defaultValue={editingProduct?.description.zh || ""} className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 focus:outline-none focus:border-[#8B5A44]"></textarea>
+                      <textarea name="descZH" rows={3} required defaultValue={editingProduct?.description?.zh || ""} className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 focus:outline-none focus:border-[#8B5A44]"></textarea>
                     </div>
                     <div className="md:col-span-2 flex justify-end gap-2 pt-2">
                       <button type="button" onClick={() => setShowProductForm(false)} className="bg-white border border-stone-200 hover:bg-stone-50 text-stone-700 px-4 py-2 rounded-xs">
@@ -3628,8 +3768,21 @@ export default function AdminDashboard({
 
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
-                          <label className="block font-semibold text-[#1A2F24] mb-1">Target E-commerce Price ($ USD) *</label>
-                          <input type="number" step="0.01" required value={ebPrice} onChange={(e) => setEbPrice(Number(e.target.value))} className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 text-stone-800 font-mono" />
+                          <label className="block font-semibold text-[#1A2F24] mb-1">
+                            {lang === "en" ? "Target E-commerce Price ($ USD)" : "目标售价 ($ USD)"}
+                            <span className="text-[10px] font-normal text-stone-500 ml-1">
+                              ({lang === "en" ? "Optional: Leave empty or 0 for Free Access" : "可不填：留空或填 0 即全员免费阅读"})
+                            </span>
+                          </label>
+                          <input 
+                            type="number" 
+                            step="0.01" 
+                            min="0"
+                            placeholder="0.00 (Free)" 
+                            value={ebPrice} 
+                            onChange={(e) => setEbPrice(e.target.value)} 
+                            className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 text-stone-800 font-mono placeholder:text-stone-400" 
+                          />
                         </div>
                         <div>
                           <label className="block font-semibold text-[#1A2F24] mb-1">Format Category *</label>
@@ -3827,7 +3980,15 @@ export default function AdminDashboard({
                                     <div className="font-serif font-bold text-[#1A2F24]">{book.title?.en}</div>
                                     <div className="text-[10px] text-stone-400 truncate">{book.title?.zh}</div>
                                   </td>
-                                  <td className="p-3 font-mono text-stone-800 font-semibold">${Number(book.price || 39.00).toFixed(2)}</td>
+                                  <td className="p-3 font-mono text-stone-800 font-semibold">
+                                    {Number(book.price || 0) === 0 ? (
+                                      <span className="text-emerald-800 bg-emerald-50 border border-emerald-200/80 text-[10px] px-2 py-0.5 rounded-xs font-sans font-medium">
+                                        {lang === "en" ? "FREE ($0.00)" : "免费 ($0.00)"}
+                                      </span>
+                                    ) : (
+                                      `$${Number(book.price).toFixed(2)}`
+                                    )}
+                                  </td>
                                   <td className="p-3">
                                     <span className="px-1.5 py-0.5 rounded-sm bg-[#8B5A44]/10 text-[#8B5A44] font-mono text-[10px] font-semibold">{book.format?.[lang] || (typeof book.format === "string" ? book.format : book.format?.en) || "Wealth Framework"}</span>
                                   </td>

@@ -393,11 +393,11 @@ export default function MindfulnessPillarView({
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-8">
             {bodyArticles.map((article) => {
-              const artTitle = article.title[lang] || article.title.en;
-              const artExcerpt = article.excerpt[lang] || article.excerpt.en;
-              const artCategory = article.category ? (article.category[lang] || article.category.en) : "BODY & LONGEVITY";
-              const artDate = article.date ? (article.date[lang] || article.date.en) : "";
-              const artReadTime = article.readTime ? (article.readTime[lang] || article.readTime.en) : "";
+              const artTitle = typeof article.title === "object" && article.title !== null ? (article.title[lang] || article.title.en || article.title.zh) : (article.title || "");
+              const artExcerpt = typeof article.excerpt === "object" && article.excerpt !== null ? (article.excerpt[lang] || article.excerpt.en || article.excerpt.zh) : (article.excerpt || "");
+              const artCategory = article.category ? (typeof article.category === "object" && article.category !== null ? (article.category[lang] || article.category.en) : article.category) : "BODY & LONGEVITY";
+              const artDate = article.date ? (typeof article.date === "object" && article.date !== null ? (article.date[lang] || article.date.en) : article.date) : "";
+              const artReadTime = article.readTime ? (typeof article.readTime === "object" && article.readTime !== null ? (article.readTime[lang] || article.readTime.en) : article.readTime) : "";
 
               return (
                 <div 
@@ -492,7 +492,7 @@ export default function MindfulnessPillarView({
                       if (onAddToCart) {
                         onAddToCart({
                           id: `guide-mindfulness-${idx + 1}`,
-                          title: guide.title[lang] || guide.title.en,
+                          title: typeof guide.title === "object" && guide.title !== null ? (guide.title[lang] || guide.title.en) : (guide.title || ""),
                           type: guide.type,
                           price: parseFloat(guide.price.replace("$", "")) || 18.00,
                           cover: "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&w=600&q=80"
