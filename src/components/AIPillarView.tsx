@@ -27,6 +27,7 @@ interface AIPillarViewProps {
   onPlayChime?: () => void;
   onNavigateToNewsletter?: () => void;
   onNavigateToArticle?: (slug: string) => void;
+  onAddToCart?: (item: any) => void;
   articles?: any[];
 }
 
@@ -36,6 +37,7 @@ export default function AIPillarView({
   onPlayChime,
   onNavigateToNewsletter,
   onNavigateToArticle,
+  onAddToCart,
   articles
 }: AIPillarViewProps) {
   const [subEmail, setSubEmail] = useState("");
@@ -546,9 +548,15 @@ export default function AIPillarView({
                   <button 
                     onClick={() => {
                       if (onPlayChime) onPlayChime();
-                      alert(lang === "en" 
-                        ? "Checkout pipeline initialized. Digital shop integration is secure." 
-                        : "结算管道已启动。数字小铺通道安全。");
+                      if (onAddToCart) {
+                        onAddToCart({
+                          id: (kit as any).id || "ai-toolkit-" + idx,
+                          title: kit.title,
+                          price: parseFloat(kit.price.replace(/[^0-9.]/g, "")) || 19.00,
+                          format: kit.type,
+                          cover: "https://cms.immersation.com/wp-content/uploads/2026/07/IMMERSATION-LOGO-Light-scaled.png"
+                        });
+                      }
                     }}
                     className="bg-[#1A2F24] hover:bg-[#8B5A44] text-[#F4F1EB] font-display text-[10px] uppercase font-bold tracking-[0.15em] px-5 py-2.5 rounded-sm transition-all flex items-center gap-1.5 cursor-pointer"
                   >

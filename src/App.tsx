@@ -1056,6 +1056,7 @@ export default function App() {
         body: JSON.stringify({
           items: cartItems,
           lang,
+          originUrl: window.location.href,
         }),
       });
 
@@ -2129,11 +2130,18 @@ export default function App() {
                     <h4 className="font-serif text-lg font-normal text-[#1A2F24] tracking-tight mb-2">
                       {lang === "en" ? "Processing Secure Payment..." : "正在处理安全支付..."}
                     </h4>
-                    <p className="font-sans text-xs text-[#1C1C1C]/50 max-w-xs mx-auto leading-relaxed">
+                    <p className="font-sans text-xs text-[#1C1C1C]/50 max-w-xs mx-auto leading-relaxed mb-6">
                       {lang === "en" 
                         ? "Encrypting payment details & upgrading mind ledger..." 
                         : "正在加密结算数据并同步您的心智资产库..."}
                     </p>
+                    <button
+                      type="button"
+                      onClick={() => setCheckoutStep("cart")}
+                      className="text-[10px] font-display uppercase tracking-widest text-[#8B5A44] hover:underline cursor-pointer px-4 py-2 border border-[#8B5A44]/30 rounded-sm"
+                    >
+                      {lang === "en" ? "Cancel & Return to Cart" : "取消并返回购物车"}
+                    </button>
                   </div>
                 ) : cartItems.length === 0 ? (
                   <div className="text-center my-auto flex flex-col items-center justify-center py-12 animate-fade-in" id="checkout-empty-view">
@@ -3096,6 +3104,7 @@ export default function App() {
               {/* Cart */}
               <button
                 onClick={() => {
+                  setCheckoutStep("cart");
                   setCartOpen(true);
                   if (audioEngineRef.current) audioEngineRef.current.playChime();
                 }}
@@ -3279,6 +3288,7 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => {
+                    setCheckoutStep("cart");
                     setMobileMenuOpen(false);
                     setCartOpen(true);
                   }}
@@ -4352,6 +4362,15 @@ export default function App() {
             window.scrollTo({ top: 0, behavior: "smooth" });
           }}
           onNavigateToArticle={(slug) => handleNavigation(slug ? "articles/" + slug : "articles")}
+          onAddToCart={(item) => {
+            setCartItems((prev) => {
+              if (prev.some((i) => i.id === item.id)) return prev;
+              return [...prev, item];
+            });
+            setCheckoutStep("cart");
+            setCartOpen(true);
+            if (audioEngineRef.current) audioEngineRef.current.playChime();
+          }}
         />
       ) : activeView === "pillar-wealth" ? (
         <WealthPillarView 
@@ -4364,6 +4383,15 @@ export default function App() {
             window.scrollTo({ top: 0, behavior: "smooth" });
           }}
           onNavigateToArticle={(slug) => handleNavigation(slug ? "articles/" + slug : "articles")}
+          onAddToCart={(item) => {
+            setCartItems((prev) => {
+              if (prev.some((i) => i.id === item.id)) return prev;
+              return [...prev, item];
+            });
+            setCheckoutStep("cart");
+            setCartOpen(true);
+            if (audioEngineRef.current) audioEngineRef.current.playChime();
+          }}
         />
       ) : activeView === "pillars" ? (
         <PillarsView

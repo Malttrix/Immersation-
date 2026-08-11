@@ -112,7 +112,23 @@ app.post("/api/create-checkout-session", async (req, res) => {
       return res.status(400).json({ error: "Cart is empty" });
     }
 
-    const APP_URL = process.env.APP_URL || "http://localhost:3000";
+    // Determine dynamic application base URL from client origin, headers, or env
+    let APP_URL = process.env.APP_URL;
+    if (!APP_URL) {
+      if (req.body && req.body.originUrl && typeof req.body.originUrl === "string") {
+        try {
+          APP_URL = new URL(req.body.originUrl).origin;
+        } catch (e) {
+          // ignore invalid URL
+        }
+      }
+      if (!APP_URL) {
+        const originHeader = req.headers.origin || (req.headers.referer ? new URL(req.headers.referer as string).origin : null);
+        const hostHeader = (req.headers["x-forwarded-host"] as string) || req.headers.host;
+        const protoHeader = (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
+        APP_URL = originHeader || (hostHeader ? `${protoHeader}://${hostHeader}` : "http://localhost:3000");
+      }
+    }
     const bookIds = items.map((item: any) => item.id);
 
     // If Stripe secret key is not configured, fall back to sandbox checkout redirection
