@@ -303,14 +303,24 @@ const ensureBilingualHelper = (field: any, defaultEn = "", defaultZh = "") => {
   return { en: defaultEn, zh: defaultZh };
 };
 
+const defaultCoverPalettes = [
+  { coverColor: "bg-[#1A2F24]", borderColor: "border-[#1A2F24]", textColor: "text-[#F4F1EB]", accentColor: "text-[#B69A6B]" },
+  { coverColor: "bg-[#8B5A44]", borderColor: "border-[#8B5A44]", textColor: "text-[#F4F1EB]", accentColor: "text-[#E8DDCF]" },
+  { coverColor: "bg-[#1C1C1C]", borderColor: "border-[#1C1C1C]", textColor: "text-[#F4F1EB]", accentColor: "text-[#B69A6B]" },
+  { coverColor: "bg-[#2D3A32]", borderColor: "border-[#2D3A32]", textColor: "text-[#F4F1EB]", accentColor: "text-[#E8DDCF]" },
+  { coverColor: "bg-[#3D2D20]", borderColor: "border-[#3D2D20]", textColor: "text-[#F4F1EB]", accentColor: "text-[#B69A6B]" },
+];
+
 const sanitizeBooks = (items: any[]): any[] => {
   const seen = new Set<string>();
   const uniqueItems: any[] = [];
-  (items || []).forEach(b => {
+  (items || []).forEach((b, idx) => {
     if (!b) return;
     const identifier = b.id || `generated-book-id-${Math.random()}`;
     if (!seen.has(identifier)) {
       seen.add(identifier);
+      const palette = defaultCoverPalettes[idx % defaultCoverPalettes.length];
+      const coverImg = b.cover || b.coverImageUrl || b.cover_image_url || "";
       uniqueItems.push({
         ...b,
         id: identifier,
@@ -320,6 +330,12 @@ const sanitizeBooks = (items: any[]): any[] => {
         format: ensureBilingualHelper(b.format, "eBook", "电子书"),
         badge: ensureBilingualHelper(b.badge, "Member / Paid", "会员免费 / 付费"),
         pillar: ensureBilingualHelper(b.pillar, "Body", "身体"),
+        coverColor: b.coverColor || palette.coverColor,
+        borderColor: b.borderColor || palette.borderColor,
+        textColor: b.textColor || palette.textColor,
+        accentColor: b.accentColor || palette.accentColor,
+        cover: coverImg,
+        coverImageUrl: coverImg,
       });
     }
   });
@@ -3864,77 +3880,103 @@ export default function App() {
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-10 pt-8"
             id="books-container"
           >
-            {books.map((book) => (
-              <div
-                key={book.id}
-                onClick={() => {
-                  setSelectedReadingBookId(book.id);
-                  setActiveView("reading-room");
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }}
-                className="book-cover-wrapper flex flex-col items-center group cursor-pointer"
-                id={`book-item-${book.id}`}
-              >
-                {/* 3D Realistic Book-Slab with cover texture and leather shadow */}
+            {books.map((book) => {
+              const bgClass = book.coverColor || "bg-[#1A2F24]";
+              const borderClass = book.borderColor || "border-[#1A2F24]";
+              const textClass = book.textColor || "text-[#F4F1EB]";
+              const coverImg = book.cover || book.coverImageUrl || "";
+              const hasCustomImage = typeof coverImg === "string" && coverImg.trim().length > 0 && !coverImg.includes("IMMERSATION-LOGO-Light-scaled.png");
+
+              return (
                 <div
-                  className={`w-full max-w-[280px] aspect-[3/4.2] ${book.coverColor} border ${book.borderColor} rounded-sm shadow-lg hover:shadow-2xl transition-all duration-500 relative transform group-hover:-translate-y-4 group-hover:rotate-1 flex flex-col justify-between p-8`}
-                  id={`book-slab-${book.id}`}
+                  key={book.id}
+                  onClick={() => {
+                    setSelectedReadingBookId(book.id);
+                    setActiveView("reading-room");
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  className="book-cover-wrapper flex flex-col items-center group cursor-pointer"
+                  id={`book-item-${book.id}`}
                 >
-                  {/* Tactile Book Spine shadow/ridge effect on the left */}
-                  <div className="absolute top-0 left-0 w-4 h-full bg-gradient-to-r from-black/15 to-transparent border-r border-white/5 rounded-l-sm"></div>
-                  {/* Subtle paper edges visible on the right */}
-                  <div className="absolute top-1.5 right-[-3px] w-[3px] h-[98%] bg-[#E8DDCF] border border-l-0 border-[#D8D2C6]/60 rounded-r-xs shadow-xs z-[-1]"></div>
+                  {/* 3D Realistic Book-Slab with cover texture and leather shadow */}
+                  <div
+                    className={`w-full max-w-[280px] aspect-[3/4.2] ${bgClass} border ${borderClass} rounded-sm shadow-lg hover:shadow-2xl transition-all duration-500 relative transform group-hover:-translate-y-4 group-hover:rotate-1 flex flex-col justify-between p-8 overflow-hidden`}
+                    id={`book-slab-${book.id}`}
+                  >
+                    {/* Cover Image display if image URL is supplied */}
+                    {hasCustomImage && (
+                      <div className="absolute inset-0 z-0 overflow-hidden rounded-sm">
+                        <img 
+                          src={coverImg} 
+                          referrerPolicy="no-referrer"
+                          alt={typeof book?.title === "object" && book?.title !== null ? (book.title[lang] || book.title.en) : (book?.title || "Book Cover")}
+                          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                        {/* Gradient overlay for text readability */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-black/30 z-1 pointer-events-none"></div>
+                      </div>
+                    )}
 
-                  {/* Top content: Category emblem and micro lines */}
-                  <div className="flex justify-between items-start">
-                    <span className={`text-[9px] font-display font-semibold tracking-widest uppercase ${book.textColor}/50`}>
-                      {book.id === "starter-kit" ? "SYSTEM CORE" : book.id === "workflow-playbook" ? "AI LEVERAGE" : book.id === "longevity-reset" ? "BODY & MIND" : "CAPITAL"}
-                    </span>
-                    {/* Tiny system nodes emblem */}
-                    <div className="flex gap-1">
-                      <span className={`w-1 h-1 rounded-full ${book.id === "starter-kit" ? "bg-[#B69A6B]" : "bg-[#8B5A44]"}`}></span>
-                      <span className={`w-1 h-1 rounded-full ${book.id === "starter-kit" ? "bg-[#B69A6B]" : "bg-[#8B5A44]"} opacity-50`}></span>
+                    {/* Tactile Book Spine shadow/ridge effect on the left */}
+                    <div className="absolute top-0 left-0 w-4 h-full bg-gradient-to-r from-black/25 to-transparent border-r border-white/10 rounded-l-sm z-10 pointer-events-none"></div>
+                    {/* Subtle paper edges visible on the right */}
+                    <div className="absolute top-1.5 right-[-3px] w-[3px] h-[98%] bg-[#E8DDCF] border border-l-0 border-[#D8D2C6]/60 rounded-r-xs shadow-xs z-[-1]"></div>
+
+                    {/* Top content: Category emblem and micro lines */}
+                    <div className="flex justify-between items-start relative z-10">
+                      <span className={`text-[9px] font-display font-semibold tracking-widest uppercase ${hasCustomImage ? "text-[#F4F1EB]/80" : `${textClass}/70`}`}>
+                        {book.id === "starter-kit" ? "SYSTEM CORE" : book.id === "workflow-playbook" ? "AI LEVERAGE" : book.id === "longevity-reset" ? "BODY & MIND" : "CAPITAL"}
+                      </span>
+                      {/* Tiny system nodes emblem */}
+                      <div className="flex gap-1">
+                        <span className={`w-1 h-1 rounded-full ${book.id === "starter-kit" ? "bg-[#B69A6B]" : "bg-[#8B5A44]"}`}></span>
+                        <span className={`w-1 h-1 rounded-full ${book.id === "starter-kit" ? "bg-[#B69A6B]" : "bg-[#8B5A44]"} opacity-50`}></span>
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Center Content: Giant Debossed Title & Slogan */}
-                  <div className="my-auto flex flex-col items-center text-center">
-                    {/* Vector Icon/Seals specific to each volume */}
-                    <div className="mb-4">
-                      {book.id === "starter-kit" ? (
-                        <Compass className="w-10 h-10 stroke-[1.25] text-[#B69A6B]" />
-                      ) : book.id === "workflow-playbook" ? (
-                        <Sparkles className="w-10 h-10 stroke-[1.25] text-[#8B5A44]" />
-                      ) : book.id === "longevity-reset" ? (
-                        <Activity className="w-10 h-10 stroke-[1.25] text-[#E8DDCF]" />
-                      ) : (
-                        <Coins className="w-10 h-10 stroke-[1.25] text-[#B69A6B]" />
+                    {/* Center Content: Giant Debossed Title & Slogan */}
+                    <div className="my-auto flex flex-col items-center text-center relative z-10">
+                      {/* Vector Icon/Seals specific to each volume */}
+                      {!hasCustomImage && (
+                        <div className="mb-4">
+                          {book.id === "starter-kit" ? (
+                            <Compass className="w-10 h-10 stroke-[1.25] text-[#B69A6B]" />
+                          ) : book.id === "workflow-playbook" ? (
+                            <Sparkles className="w-10 h-10 stroke-[1.25] text-[#8B5A44]" />
+                          ) : book.id === "longevity-reset" ? (
+                            <Activity className="w-10 h-10 stroke-[1.25] text-[#E8DDCF]" />
+                          ) : (
+                            <Coins className="w-10 h-10 stroke-[1.25] text-[#B69A6B]" />
+                          )}
+                        </div>
                       )}
+                      
+                      <h3 className={`font-serif text-lg tracking-wider font-semibold mb-2 ${hasCustomImage ? "text-[#F4F1EB]" : textClass} leading-snug drop-shadow-sm`}>
+                        {typeof book?.title === "object" && book?.title !== null ? (book.title[lang] || book.title.en || book.title.zh) : (book?.title || "")}
+                      </h3>
+                      <p className={`font-serif italic text-[11px] px-1 ${hasCustomImage ? "text-[#F4F1EB]/85" : `${textClass}/80`} leading-normal`}>
+                        {typeof book?.tagline === "object" && book?.tagline !== null ? (book.tagline[lang] || book.tagline.en) : (typeof book?.description === "object" && book?.description !== null ? (book.description[lang] || book.description.en) : (book?.tagline || book?.description || ""))}
+                      </p>
                     </div>
-                    
-                    <h3 className={`font-serif text-lg tracking-wider font-semibold mb-2 ${book.textColor} leading-snug`}>
-                      {typeof book?.title === "object" && book?.title !== null ? (book.title[lang] || book.title.en || book.title.zh) : (book?.title || "")}
-                    </h3>
-                    <p className={`font-serif italic text-[11px] px-1 opacity-75 ${book.textColor} leading-normal`}>
-                      {typeof book?.tagline === "object" && book?.tagline !== null ? (book.tagline[lang] || book.tagline.en) : (typeof book?.description === "object" && book?.description !== null ? (book.description[lang] || book.description.en) : (book?.tagline || book?.description || ""))}
-                    </p>
-                  </div>
 
-                  {/* Bottom: Publishing credit & details */}
-                  <div className="border-t border-[#D8D2C6]/20 pt-4 flex justify-between items-end">
-                    <div className="text-left">
-                      <span className={`text-[7px] font-display uppercase tracking-[0.2em] block ${book.textColor}/40`}>
-                        PUBLISHER
-                      </span>
-                      <span className={`text-[9px] font-sans font-medium tracking-wide ${book.textColor}`}>
-                        IMMERSATION
+                    {/* Bottom: Publishing credit & details */}
+                    <div className="border-t border-white/20 pt-4 flex justify-between items-end relative z-10">
+                      <div className="text-left">
+                        <span className={`text-[7px] font-display uppercase tracking-[0.2em] block ${hasCustomImage ? "text-[#F4F1EB]/50" : `${textClass}/50`}`}>
+                          PUBLISHER
+                        </span>
+                        <span className={`text-[9px] font-sans font-medium tracking-wide ${hasCustomImage ? "text-[#F4F1EB]" : textClass}`}>
+                          IMMERSATION
+                        </span>
+                      </div>
+                      <span className={`text-[9px] font-mono ${hasCustomImage ? "text-[#F4F1EB]/70" : `${textClass}/70`}`}>
+                        VOL. {book.id === "starter-kit" ? "01" : book.id === "workflow-playbook" ? "02" : book.id === "longevity-reset" ? "03" : "04"}
                       </span>
                     </div>
-                    <span className={`text-[9px] font-mono ${book.textColor}/60`}>
-                      VOL. {book.id === "starter-kit" ? "01" : book.id === "workflow-playbook" ? "02" : book.id === "longevity-reset" ? "03" : "04"}
-                    </span>
                   </div>
-                </div>
 
                 {/* Companion description text on page (aligned under the book cover) */}
                 <div className="mt-6 text-center max-w-[260px] flex flex-col items-center">
@@ -3957,7 +3999,8 @@ export default function App() {
                   </div>
                 </div>
               </div>
-            ))}
+            );
+          })}
           </div>
           )}
         </div>

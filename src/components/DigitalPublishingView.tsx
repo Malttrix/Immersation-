@@ -140,7 +140,14 @@ export default function DigitalPublishingView({
     return { en: defaultEn, zh: defaultZh };
   };
 
-  const products = books.map(b => {
+  const coverPalettes = [
+    { coverColor: "bg-[#1A2F24]", borderColor: "border-[#1A2F24]", textColor: "text-[#F4F1EB]", accentColor: "text-[#B69A6B]" },
+    { coverColor: "bg-[#8B5A44]", borderColor: "border-[#8B5A44]", textColor: "text-[#F4F1EB]", accentColor: "text-[#E8DDCF]" },
+    { coverColor: "bg-[#1C1C1C]", borderColor: "border-[#1C1C1C]", textColor: "text-[#F4F1EB]", accentColor: "text-[#B69A6B]" },
+    { coverColor: "bg-[#2D3A32]", borderColor: "border-[#2D3A32]", textColor: "text-[#F4F1EB]", accentColor: "text-[#E8DDCF]" },
+  ];
+
+  const products = books.map((b, idx) => {
     let rawFormat = b.format;
     if (!rawFormat) {
       if (b.id === "starter-kit") rawFormat = { en: "Digital Guide", zh: "数字指南" };
@@ -148,6 +155,9 @@ export default function DigitalPublishingView({
       else if (b.id === "longevity-reset") rawFormat = { en: "Workbook", zh: "工作手册" };
       else if (b.id === "wealth-frameworks") rawFormat = { en: "eBook", zh: "电子书" };
     }
+    const palette = coverPalettes[idx % coverPalettes.length];
+    const coverImg = b.cover || b.coverImageUrl || b.cover_image_url || "";
+
     return {
       id: b.id,
       title: ensureBilingual(b.title, "Untitled Product", "未命名产品"),
@@ -158,10 +168,11 @@ export default function DigitalPublishingView({
       price: b.price === 0 ? "$0.00" : `${Number(b.price || 19).toFixed(2)}`,
       description: ensureBilingual(b.description, "", ""),
       priceNum: b.price || 0,
-      coverColor: b.coverColor || "bg-[#1A2F24]",
-      borderColor: b.borderColor || "border-[#1A2F24]",
-      textColor: b.textColor || "text-[#F4F1EB]",
-      accentColor: b.accentColor || "text-[#B69A6B]"
+      cover: coverImg,
+      coverColor: b.coverColor || palette.coverColor,
+      borderColor: b.borderColor || palette.borderColor,
+      textColor: b.textColor || palette.textColor,
+      accentColor: b.accentColor || palette.accentColor
     };
   });
 
@@ -528,22 +539,34 @@ export default function DigitalPublishingView({
                   {/* Card Cover Preview */}
                   <div className="mb-6 relative flex justify-center py-6 bg-[#F4F1EB]/50 rounded-sm overflow-hidden border border-[#D8D2C6]/30">
                     <div className={`w-28 h-36 ${prod.coverColor} rounded-xs shadow-md p-3 flex flex-col justify-between relative overflow-hidden group-hover:scale-105 transition-transform duration-500`}>
+                      {prod.cover && !prod.cover.includes("IMMERSATION-LOGO-Light-scaled.png") && (
+                        <div className="absolute inset-0 z-0">
+                          <img 
+                            src={prod.cover} 
+                            referrerPolicy="no-referrer"
+                            alt={prod.title[lang]} 
+                            className="w-full h-full object-cover"
+                            onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent pointer-events-none"></div>
+                        </div>
+                      )}
                       <div className="absolute inset-0 bg-gradient-to-tr from-white/5 to-transparent"></div>
                       
                       {/* Top Header with small format-specific visual cue */}
                       <div className="flex justify-between items-center z-10">
-                        <span className={`text-[6px] font-mono tracking-widest ${prod.textColor} opacity-60`}>IMMERSATION</span>
-                        <div className={`${prod.accentColor} opacity-80`}>
+                        <span className={`text-[6px] font-mono tracking-widest ${prod.cover && !prod.cover.includes("IMMERSATION-LOGO-Light-scaled.png") ? "text-[#F4F1EB]" : prod.textColor} opacity-80`}>IMMERSATION</span>
+                        <div className={`${prod.cover && !prod.cover.includes("IMMERSATION-LOGO-Light-scaled.png") ? "text-[#F4F1EB]" : prod.accentColor} opacity-90`}>
                           {prod.format.en.toLowerCase().includes("guide") && <Compass className="w-3 h-3" />}
                           {prod.format.en.toLowerCase().includes("workbook") && <ClipboardList className="w-3 h-3" />}
                           {prod.format.en.toLowerCase().includes("ebook") && <Layers className="w-3 h-3" />}
                         </div>
                       </div>
 
-                      <h4 className={`font-serif text-[10px] font-normal leading-tight text-center ${prod.textColor} px-1 my-auto`}>
+                      <h4 className={`font-serif text-[10px] font-normal leading-tight text-center ${prod.cover && !prod.cover.includes("IMMERSATION-LOGO-Light-scaled.png") ? "text-[#F4F1EB]" : prod.textColor} px-1 my-auto z-10`}>
                         {prod.title[lang]}
                       </h4>
-                      <span className={`text-[5px] font-mono text-center ${prod.textColor} opacity-40`}>{prod.pages}</span>
+                      <span className={`text-[5px] font-mono text-center ${prod.cover && !prod.cover.includes("IMMERSATION-LOGO-Light-scaled.png") ? "text-[#F4F1EB]" : prod.textColor} opacity-60 z-10`}>{prod.pages}</span>
                     </div>
                   </div>
 
