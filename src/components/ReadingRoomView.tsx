@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import HTMLFlipBook from "react-pageflip";
 const FlipBook = HTMLFlipBook as any;
@@ -213,6 +213,101 @@ const Page = React.forwardRef<HTMLDivElement, { children: React.ReactNode, class
   );
 });
 
+function processChaptersIntoSpreads(rawChapters: any[], lang: "en" | "zh", book: any) {
+  if (!Array.isArray(rawChapters) || rawChapters.length === 0) return [];
+
+  const extractVal = (val: any): string => {
+    if (!val) return "";
+    if (typeof val === "string") return val;
+    if (typeof val === "object") {
+      return val[lang] || val.en || val.zh || Object.values(val).find(v => typeof v === "string") || "";
+    }
+    return String(val);
+  };
+
+  const spreads: { chapterLabel: string; title: string; leftContent: string; rightContent: string }[] = [];
+
+  rawChapters.forEach((pageObj, chIdx) => {
+    let chapterLabel = extractVal(
+      pageObj.chapterLabel || pageObj.label || pageObj.chapter || pageObj.category || pageObj.tagline || pageObj.pillar || pageObj.volume
+    );
+    if (!chapterLabel) {
+      chapterLabel = lang === "en" ? `Chapter ${chIdx + 1}` : `第 ${chIdx + 1} 章`;
+    }
+
+    let title = extractVal(pageObj.title || pageObj.name || pageObj.heading || pageObj.chapterTitle);
+    if (!title) {
+      title = extractVal(book?.title) || (lang === "en" ? "Untitled Chapter" : "未命名章节");
+    }
+
+    let leftText = extractVal(
+      pageObj.leftContentMarkdown || pageObj.left_content_markdown || pageObj.leftContent || pageObj.left_content || pageObj.leftPage || pageObj.left
+    );
+    let rightText = extractVal(
+      pageObj.rightContentMarkdown || pageObj.right_content_markdown || pageObj.rightContent || pageObj.right_content || pageObj.rightPage || pageObj.right
+    );
+
+    // If both left and right text exist, treat this chapter as an explicit spread (or multiple if long)
+    if (leftText.trim() || rightText.trim()) {
+      spreads.push({
+        chapterLabel,
+        title,
+        leftContent: leftText,
+        rightContent: rightText
+      });
+      return;
+    }
+
+    // Otherwise, extract raw single content
+    let rawContent = extractVal(
+      pageObj.content || pageObj.body || pageObj.markdown || pageObj.text || pageObj.description || pageObj.excerpt || pageObj.details
+    );
+
+    if (!rawContent.trim()) {
+      const bookDesc = extractVal(book?.description || book?.tagline);
+      rawContent = lang === "en"
+        ? `### ${title}\n\n${bookDesc || "Welcome to this chapter. Explore key insights and cognitive frameworks designed for deep clarity."}\n\n#### Executive Summary & Key Takeaways\n\n1. Eliminate friction across daily workflow pipelines.\n2. Leverage structured knowledge tools for clear cognitive synthesis.\n3. Compound long-term value through deliberate practice.`
+        : `### ${title}\n\n${bookDesc || "欢迎阅读本章节。沉淀核心认知与系统化思维模型。"}\n\n#### 核心要点与实操总结\n\n1. 消解每日工作流中的冗余阻力与摩擦。\n2. 借助结构化知识工具实现敏捷心智提炼。\n3. 通过意向性复利实践积累长久价值。`;
+    }
+
+    // Split raw text into paragraphs
+    const paragraphs = rawContent.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+
+    // Chunk paragraphs into single-page limits (~500-600 characters per single page)
+    const MAX_PAGE_CHARS = 550;
+    const pageBlocks: string[] = [];
+    let currentBlock = "";
+
+    for (const para of paragraphs) {
+      if (currentBlock.length > 0 && (currentBlock.length + para.length > MAX_PAGE_CHARS)) {
+        pageBlocks.push(currentBlock.trim());
+        currentBlock = para;
+      } else {
+        currentBlock = currentBlock ? `${currentBlock}\n\n${para}` : para;
+      }
+    }
+    if (currentBlock.trim()) {
+      pageBlocks.push(currentBlock.trim());
+    }
+
+    // Pair page blocks into double-page spreads
+    for (let i = 0; i < pageBlocks.length; i += 2) {
+      const subIndex = Math.floor(i / 2) + 1;
+      const totalSubs = Math.ceil(pageBlocks.length / 2);
+      const displayLabel = totalSubs > 1 ? `${chapterLabel} (${subIndex}/${totalSubs})` : chapterLabel;
+
+      spreads.push({
+        chapterLabel: displayLabel,
+        title,
+        leftContent: pageBlocks[i] || "",
+        rightContent: pageBlocks[i + 1] || ""
+      });
+    }
+  });
+
+  return spreads;
+}
+
 export default function ReadingRoomView({ 
   lang, 
   onBackToHome, 
@@ -275,13 +370,40 @@ export default function ReadingRoomView({
   }, []);
 
   const currentBook = activeProductBooks.find((b) => b.id === activeBookId) || activeProductBooks[0];
-  // If loaded DB chapters from book_chapters table, use those. Otherwise, fallback to the book's embedded chapters, local booksContent, or starter-kit fallback.
-  const activeBookPages = dbChapters || currentBook.chapters || booksContent[activeBookId] || booksContent["starter-kit"];
   
+  // Resolve raw chapter list from Supabase, embedded chapters, local content, or single content string
+  const rawBookChapters = (() => {
+    if (Array.isArray(dbChapters) && dbChapters.length > 0) return dbChapters;
+    if (Array.isArray(currentBook?.chapters) && currentBook.chapters.length > 0) return currentBook.chapters;
+    if (Array.isArray(booksContent[activeBookId]) && booksContent[activeBookId].length > 0) return booksContent[activeBookId];
+    
+    // Construct page spread if currentBook has single content/description field
+    const extractVal = (val: any): string => {
+      if (!val) return "";
+      if (typeof val === "string") return val;
+      if (typeof val === "object") return val[lang] || val.en || val.zh || "";
+      return String(val);
+    };
+    const cContent = extractVal(currentBook?.content || currentBook?.description || currentBook?.tagline);
+    if (cContent.trim().length > 0) {
+      return [{
+        chapterLabel: extractVal(currentBook?.tagline || currentBook?.category) || (lang === "en" ? "Chapter 1" : "第一章"),
+        title: extractVal(currentBook?.title) || "Digital Edition",
+        content: cContent
+      }];
+    }
+    return booksContent["starter-kit"] || [];
+  })();
+
+  // Process raw chapters into dynamic double-page spreads so EPUB text flows across as many pages as needed
+  const activeBookSpreads = useMemo(() => {
+    return processChaptersIntoSpreads(rawBookChapters, lang, currentBook);
+  }, [rawBookChapters, lang, currentBook]);
+
   const isUnlocked = unlockedBookIds.includes(activeBookId) || Number(currentBook?.price || 0) === 0;
   
-  // Dynamically calculate maxPages: 2 pages rendered per spread (if unlocked, activeBookPages.length * 2 pages; if locked, 2 pages)
-  const totalRenderedPages = isUnlocked ? activeBookPages.length * 2 : 2;
+  // Dynamically calculate totalRenderedPages and maxPages based on total double-page spreads
+  const totalRenderedPages = isUnlocked ? activeBookSpreads.length * 2 : 2;
   const maxPages = Math.ceil(totalRenderedPages / 2);
 
   useEffect(() => {
@@ -501,13 +623,13 @@ export default function ReadingRoomView({
                 onFlip={(e: any) => setCurrentPageIndex(isMobile ? e.data : Math.floor(e.data / 2))}
               >
               {isUnlocked ? (
-                activeBookPages.flatMap((page, index) => [
-                  
+                activeBookSpreads.flatMap((pData, index) => {
+                  return [
                     <Page key={`left-${index}`} className={`${themeClasses[readingTheme]} pt-4 pb-4 md:pt-6 md:pb-6 lg:pt-8 lg:pb-8 ${getPagePadding('left')} border-r border-black/5 flex flex-col justify-between h-full overflow-hidden`}>
                       {/* Header info */}
                       <div className="flex items-center justify-between border-b border-[#D8D2C6]/40 pb-3 mb-4 shrink-0">
                         <span className="font-display text-[8px] font-bold tracking-[0.15em] text-[#8B5A44]">
-                          {typeof page?.chapterLabel === "object" && page?.chapterLabel !== null ? (page.chapterLabel[lang] || page.chapterLabel.en) : (page?.chapterLabel || "")}
+                          {pData.chapterLabel}
                         </span>
                         <span className="font-serif italic text-[8px] text-[#1C1C1C]/40 truncate max-w-[150px]">
                           {typeof currentBook?.title === "object" && currentBook?.title !== null ? (currentBook.title[lang] || currentBook.title.en) : (currentBook?.title || "")}
@@ -517,9 +639,9 @@ export default function ReadingRoomView({
                       {/* Chapter Title & Left Text Content */}
                       <div className={"flex-1 overflow-y-auto min-h-0 pr-2 scrollbar-thin " + fontClasses[fontSize]}>
                         <h2 className="font-serif text-[15px] sm:text-base lg:text-xl text-[#1A2F24] tracking-tight leading-snug mb-4">
-                          {typeof page?.title === "object" && page?.title !== null ? (page.title[lang] || page.title.en) : (page?.title || "")}
+                          {pData.title}
                         </h2>
-                        {renderChapterContent(typeof page?.leftContentMarkdown === "object" && page?.leftContentMarkdown !== null ? (page.leftContentMarkdown[lang] || page.leftContentMarkdown.en || "") : (page?.leftContentMarkdown || ""), fontSize)}
+                        {renderChapterContent(pData.leftContent, fontSize)}
                       </div>
 
                       {/* Left Page Number footer */}
@@ -534,7 +656,7 @@ export default function ReadingRoomView({
                       {/* Header info */}
                       <div className="flex items-center justify-between border-b border-[#D8D2C6]/40 pb-3 mb-4 shrink-0">
                         <span className="font-serif italic text-[8px] text-[#1C1C1C]/40 truncate max-w-[150px]">
-                          {typeof page?.title === "object" && page?.title !== null ? (page.title[lang] || page.title.en) : (page?.title || "")}
+                          {pData.title}
                         </span>
                         <span className="font-display text-[8px] tracking-[0.2em] font-semibold text-[#8B5A44] uppercase">
                           IMMERSATION 智枢
@@ -543,7 +665,7 @@ export default function ReadingRoomView({
 
                       {/* Right Text Content */}
                       <div className={"flex-1 overflow-y-auto min-h-0 pr-2 scrollbar-thin " + fontClasses[fontSize]}>
-                        {renderChapterContent(typeof page?.rightContentMarkdown === "object" && page?.rightContentMarkdown !== null ? (page.rightContentMarkdown[lang] || page.rightContentMarkdown.en || "") : (page?.rightContentMarkdown || ""), fontSize)}
+                        {renderChapterContent(pData.rightContent, fontSize)}
                       </div>
 
                       {/* Right Page Number footer */}
@@ -552,7 +674,8 @@ export default function ReadingRoomView({
                         <span className="text-[8px] uppercase tracking-wider font-semibold font-display">Est. 2026</span>
                       </div>
                     </Page>
-                ])
+                  ];
+                })
               ) : (
                 [
                   /* LEFT PAGE - PAYWALL PREVIEW */

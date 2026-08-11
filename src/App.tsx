@@ -3914,82 +3914,98 @@ export default function App() {
                     id={`book-slab-${book.id}`}
                   >
                     {/* Cover Image display if image URL is supplied */}
-                    {hasCustomImage && (
-                      <div className="absolute inset-0 z-0 overflow-hidden rounded-sm">
-                        <img 
-                          src={coverImg} 
-                          referrerPolicy="no-referrer"
-                          alt={typeof book?.title === "object" && book?.title !== null ? (book.title[lang] || book.title.en) : (book?.title || "Book Cover")}
-                          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                          onError={(e) => {
-                            (e.target as HTMLElement).style.display = 'none';
-                          }}
-                        />
-                        {/* Gradient overlay for text readability */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-black/30 z-1 pointer-events-none"></div>
-                      </div>
-                    )}
-
-                    {/* Tactile Book Spine shadow/ridge effect on the left */}
-                    <div className="absolute top-0 left-0 w-4 h-full bg-gradient-to-r from-black/25 to-transparent border-r border-white/10 rounded-l-sm z-10 pointer-events-none"></div>
-                    {/* Subtle paper edges visible on the right */}
-                    <div className="absolute top-1.5 right-[-3px] w-[3px] h-[98%] bg-[#E8DDCF] border border-l-0 border-[#D8D2C6]/60 rounded-r-xs shadow-xs z-[-1]"></div>
-
-                    {/* Top content: Category emblem and micro lines */}
-                    <div className="flex justify-between items-start relative z-10">
-                      <span className={`text-[9px] font-display font-semibold tracking-widest uppercase ${hasCustomImage ? "text-[#F4F1EB]/80" : `${textClass}/70`}`}>
-                        {book.id === "starter-kit" ? "SYSTEM CORE" : book.id === "workflow-playbook" ? "AI LEVERAGE" : book.id === "longevity-reset" ? "BODY & MIND" : "CAPITAL"}
-                      </span>
-                      {/* Tiny system nodes emblem */}
-                      <div className="flex gap-1">
-                        <span className={`w-1 h-1 rounded-full ${book.id === "starter-kit" ? "bg-[#B69A6B]" : "bg-[#8B5A44]"}`}></span>
-                        <span className={`w-1 h-1 rounded-full ${book.id === "starter-kit" ? "bg-[#B69A6B]" : "bg-[#8B5A44]"} opacity-50`}></span>
-                      </div>
-                    </div>
-
-                    {/* Center Content: Giant Debossed Title & Slogan */}
-                    <div className="my-auto flex flex-col items-center text-center relative z-10">
-                      {/* Vector Icon/Seals specific to each volume */}
-                      {!hasCustomImage && (
-                        <div className="mb-4">
-                          {book.id === "starter-kit" ? (
-                            <Compass className="w-10 h-10 stroke-[1.25] text-[#B69A6B]" />
-                          ) : book.id === "workflow-playbook" ? (
-                            <Sparkles className="w-10 h-10 stroke-[1.25] text-[#8B5A44]" />
-                          ) : book.id === "longevity-reset" ? (
-                            <Activity className="w-10 h-10 stroke-[1.25] text-[#E8DDCF]" />
-                          ) : (
-                            <Coins className="w-10 h-10 stroke-[1.25] text-[#B69A6B]" />
-                          )}
+                    {hasCustomImage ? (
+                      <>
+                        <div className="absolute inset-0 z-0 overflow-hidden rounded-sm">
+                          <img 
+                            src={coverImg} 
+                            referrerPolicy="no-referrer"
+                            alt={typeof book?.title === "object" && book?.title !== null ? (book.title[lang] || book.title.en) : (book?.title || "Book Cover")}
+                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                            onError={(e) => {
+                              (e.target as HTMLElement).style.display = 'none';
+                            }}
+                          />
                         </div>
-                      )}
-                      
-                      <h3 className={`font-serif text-lg tracking-wider font-semibold mb-2 ${hasCustomImage ? "text-[#F4F1EB]" : textClass} leading-snug drop-shadow-sm`}>
-                        {typeof book?.title === "object" && book?.title !== null ? (book.title[lang] || book.title.en || book.title.zh) : (book?.title || "")}
-                      </h3>
-                      <p className={`font-serif italic text-[11px] px-1 ${hasCustomImage ? "text-[#F4F1EB]/85" : `${textClass}/80`} leading-normal`}>
-                        {typeof book?.tagline === "object" && book?.tagline !== null ? (book.tagline[lang] || book.tagline.en) : (typeof book?.description === "object" && book?.description !== null ? (book.description[lang] || book.description.en) : (book?.tagline || book?.description || ""))}
-                      </p>
-                    </div>
+                        {/* Tactile Book Spine shadow/ridge effect on the left */}
+                        <div className="absolute top-0 left-0 w-4 h-full bg-gradient-to-r from-black/25 to-transparent border-r border-white/10 rounded-l-sm z-10 pointer-events-none"></div>
+                        {/* Subtle paper edges visible on the right */}
+                        <div className="absolute top-1.5 right-[-3px] w-[3px] h-[98%] bg-[#E8DDCF] border border-l-0 border-[#D8D2C6]/60 rounded-r-xs shadow-xs z-[-1]"></div>
+                      </>
+                    ) : (
+                      <>
+                        {/* Tactile Book Spine shadow/ridge effect on the left */}
+                        <div className="absolute top-0 left-0 w-4 h-full bg-gradient-to-r from-black/25 to-transparent border-r border-white/10 rounded-l-sm z-10 pointer-events-none"></div>
+                        {/* Subtle paper edges visible on the right */}
+                        <div className="absolute top-1.5 right-[-3px] w-[3px] h-[98%] bg-[#E8DDCF] border border-l-0 border-[#D8D2C6]/60 rounded-r-xs shadow-xs z-[-1]"></div>
 
-                    {/* Bottom: Publishing credit & details */}
-                    <div className="border-t border-white/20 pt-4 flex justify-between items-end relative z-10">
-                      <div className="text-left">
-                        <span className={`text-[7px] font-display uppercase tracking-[0.2em] block ${hasCustomImage ? "text-[#F4F1EB]/50" : `${textClass}/50`}`}>
-                          PUBLISHER
-                        </span>
-                        <span className={`text-[9px] font-sans font-medium tracking-wide ${hasCustomImage ? "text-[#F4F1EB]" : textClass}`}>
-                          IMMERSATION
-                        </span>
-                      </div>
-                      <span className={`text-[9px] font-mono ${hasCustomImage ? "text-[#F4F1EB]/70" : `${textClass}/70`}`}>
-                        VOL. {book.id === "starter-kit" ? "01" : book.id === "workflow-playbook" ? "02" : book.id === "longevity-reset" ? "03" : "04"}
-                      </span>
-                    </div>
+                        {/* Top content: Category emblem and micro lines */}
+                        <div className="flex justify-between items-start relative z-10">
+                          <span className={`text-[9px] font-display font-semibold tracking-widest uppercase ${textClass}/70`}>
+                            {book.id === "starter-kit" ? "SYSTEM CORE" : book.id === "workflow-playbook" ? "AI LEVERAGE" : book.id === "longevity-reset" ? "BODY & MIND" : "CAPITAL"}
+                          </span>
+                          {/* Tiny system nodes emblem */}
+                          <div className="flex gap-1">
+                            <span className={`w-1 h-1 rounded-full ${book.id === "starter-kit" ? "bg-[#B69A6B]" : "bg-[#8B5A44]"}`}></span>
+                            <span className={`w-1 h-1 rounded-full ${book.id === "starter-kit" ? "bg-[#B69A6B]" : "bg-[#8B5A44]"} opacity-50`}></span>
+                          </div>
+                        </div>
+
+                        {/* Center Content: Giant Debossed Title & Slogan */}
+                        <div className="my-auto flex flex-col items-center text-center relative z-10">
+                          {/* Pillar label AT THE TOP of the ebook title */}
+                          <span className="text-[9px] font-display font-bold uppercase tracking-widest text-[#B69A6B] mb-2">
+                            {(typeof book.pillar === "object" && book.pillar !== null ? (book.pillar[lang] || book.pillar.en || book.pillar.zh) : book.pillar) || 
+                             (typeof book.category === "object" && book.category !== null ? (book.category[lang] || book.category.en || book.category.zh) : book.category) || 
+                             (book.id === "starter-kit" ? "Mindfulness & Systems" : book.id === "workflow-playbook" ? "AI & Automation" : book.id === "longevity-reset" ? "Mindfulness & Health" : "Wealth & Frameworks")}
+                          </span>
+
+                          {/* Vector Icon/Seals specific to each volume */}
+                          <div className="mb-4">
+                            {book.id === "starter-kit" ? (
+                              <Compass className="w-10 h-10 stroke-[1.25] text-[#B69A6B]" />
+                            ) : book.id === "workflow-playbook" ? (
+                              <Sparkles className="w-10 h-10 stroke-[1.25] text-[#8B5A44]" />
+                            ) : book.id === "longevity-reset" ? (
+                              <Activity className="w-10 h-10 stroke-[1.25] text-[#E8DDCF]" />
+                            ) : (
+                              <Coins className="w-10 h-10 stroke-[1.25] text-[#B69A6B]" />
+                            )}
+                          </div>
+                          
+                          <h3 className={`font-serif text-lg tracking-wider font-semibold mb-2 ${textClass} leading-snug drop-shadow-sm`}>
+                            {typeof book?.title === "object" && book?.title !== null ? (book.title[lang] || book.title.en || book.title.zh) : (book?.title || "")}
+                          </h3>
+                          <p className={`font-serif italic text-[11px] px-1 ${textClass}/80 leading-normal`}>
+                            {typeof book?.tagline === "object" && book?.tagline !== null ? (book.tagline[lang] || book.tagline.en) : (typeof book?.description === "object" && book?.description !== null ? (book.description[lang] || book.description.en) : (book?.tagline || book?.description || ""))}
+                          </p>
+                        </div>
+
+                        {/* Bottom: Publishing credit & details */}
+                        <div className="border-t border-white/20 pt-4 flex justify-between items-end relative z-10">
+                          <div className="text-left">
+                            <span className={`text-[7px] font-display uppercase tracking-[0.2em] block ${textClass}/50`}>
+                              PUBLISHER
+                            </span>
+                            <span className={`text-[9px] font-sans font-medium tracking-wide ${textClass}`}>
+                              IMMERSATION
+                            </span>
+                          </div>
+                          <span className={`text-[9px] font-mono ${textClass}/70`}>
+                            VOL. {book.id === "starter-kit" ? "01" : book.id === "workflow-playbook" ? "02" : book.id === "longevity-reset" ? "03" : "04"}
+                          </span>
+                        </div>
+                      </>
+                    )}
                   </div>
 
                 {/* Companion description text on page (aligned under the book cover) */}
                 <div className="mt-6 text-center max-w-[260px] flex flex-col items-center">
+                  <span className="text-[10px] font-display font-bold uppercase tracking-widest text-[#8B5A44] mb-1">
+                    {(typeof book.pillar === "object" && book.pillar !== null ? (book.pillar[lang] || book.pillar.en || book.pillar.zh) : book.pillar) || 
+                     (typeof book.category === "object" && book.category !== null ? (book.category[lang] || book.category.en || book.category.zh) : book.category) || 
+                     (book.id === "starter-kit" ? "Mindfulness & Systems" : book.id === "workflow-playbook" ? "AI & Automation" : book.id === "longevity-reset" ? "Mindfulness & Longevity" : "Wealth & Frameworks")}
+                  </span>
                   <h4 className="font-display text-xs font-semibold uppercase tracking-widest text-[#1A2F24] mb-2 group-hover:text-[#8B5A44] transition-colors">
                     {typeof book?.title === "object" && book?.title !== null ? (book.title[lang] || book.title.en || book.title.zh) : (book?.title || "")}
                   </h4>
