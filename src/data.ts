@@ -98,7 +98,7 @@ export const productBooks: CardItem[] = [
     textColor: "text-[#F4F1EB]",
     accentColor: "text-[#E8DDCF]",
     price: 19.00,
-    html5FlipbookUrl: "https://sparkling-semifreddo-a67780.netlify.app/",
+    html5FlipbookUrl: "https://animated-frangollo-61bd01.netlify.app/",
     epubSourceUrl: "https://cms.immersation.com/wp-content/uploads/files/longevity-nutrient-c15-research-brief-en.epub"
   },
   {

@@ -33,7 +33,8 @@ import {
   ShieldCheck,
   Database,
   Settings,
-  Check, ChevronDown
+  Check, ChevronDown,
+  BookOpen
 } from "lucide-react";
 import {
   navigationLinks,
@@ -323,12 +324,13 @@ const sanitizeBooks = (items: any[]): any[] => {
       const coverImg = b.cover || b.coverImageUrl || b.cover_image_url || "";
       let rawFlip = typeof b.html5FlipbookUrl === "string" ? b.html5FlipbookUrl.trim() : (typeof b.flipbookUrl === "string" ? b.flipbookUrl.trim() : "");
       if (!rawFlip && b.epubSourceUrl && typeof b.epubSourceUrl === "string") {
-        rawFlip = b.epubSourceUrl.trim();
+        const epub = b.epubSourceUrl.trim();
+        if (epub.toLowerCase().endsWith(".epub")) {
+          rawFlip = epub.substring(0, epub.length - 5) + ".html";
+        }
       }
       let sanitizedFlipbookUrl = rawFlip;
-      if (sanitizedFlipbookUrl.toLowerCase().endsWith(".epub")) {
-        sanitizedFlipbookUrl = sanitizedFlipbookUrl.substring(0, sanitizedFlipbookUrl.length - 5) + ".html";
-      } else if (sanitizedFlipbookUrl.toLowerCase().endsWith(".pdf")) {
+      if (sanitizedFlipbookUrl.toLowerCase().endsWith(".pdf")) {
         sanitizedFlipbookUrl = "";
       }
       if (sanitizedFlipbookUrl.startsWith("http://")) {
@@ -451,8 +453,13 @@ export default function App() {
             setBooks(prevBooks => {
               const updated = data.map((spItem: any) => {
                 const existing = prevBooks.find((b: any) => b.id === spItem.id);
-                const spHtml5 = spItem.html5FlipbookUrl || spItem.html5_flipbook_url || spItem.flipbookUrl;
-                const finalHtml5 = spHtml5 && String(spHtml5).trim() !== "" ? String(spHtml5).trim() : (existing?.html5FlipbookUrl || existing?.flipbookUrl || "");
+                const spHtml5 = (spItem.html5FlipbookUrl || spItem.html5_flipbook_url || spItem.flipbookUrl || "").trim();
+                const existingHtml5 = (existing?.html5FlipbookUrl || existing?.flipbookUrl || "").trim();
+                let finalHtml5 = existingHtml5;
+                if (!existingHtml5 || (spHtml5 && spHtml5 !== existingHtml5 && !spHtml5.includes("cms.immersation.com/wp-content/uploads/files") && !existingHtml5.includes("animated-frangollo"))) {
+                  if (spHtml5) finalHtml5 = spHtml5;
+                }
+                if (!finalHtml5) finalHtml5 = spHtml5;
                 return {
                   ...existing,
                   ...spItem,
@@ -1042,6 +1049,56 @@ export default function App() {
     }
   }, []);
 
+  // Verify Stripe checkout session (either on mount or in-app)
+  const verifyAndCompleteSession = async (sessionId: string) => {
+    setCheckoutStep("processing");
+    setCartOpen(true);
+
+    try {
+      const res = await fetch(`/api/verify-session?session_id=${sessionId}`);
+      const data = await res.json();
+      if (data.paid && data.books) {
+        setUnlockedBookIds((prev) => {
+          const next = [...prev];
+          data.books.forEach((id: string) => {
+            if (!next.includes(id)) {
+              next.push(id);
+            }
+          });
+          return next;
+        });
+        
+        // Reconstruct cart items or receipt items
+        const allAvailableBooks = books && books.length > 0 ? books : productBooks;
+        let items = data.books.map((id: string) => 
+          allAvailableBooks.find((b: any) => b.id === id)
+        ).filter(Boolean);
+
+        if (items.length === 0 && cartItems.length > 0) {
+          items = [...cartItems];
+        }
+        
+        setOrderReceipt(items);
+        setCheckoutStep("success");
+        setCartItems([]); // Clear cart upon success
+
+        // Clean URL query parameters
+        const cleanUrl = window.location.origin + window.location.pathname + window.location.hash;
+        window.history.replaceState({}, document.title, cleanUrl);
+
+        if (audioEngineRef.current) audioEngineRef.current.playChime();
+      } else {
+        setCheckoutStep("cart");
+        alert(lang === "en" 
+          ? "Your payment could not be verified by Stripe. Please contact support." 
+          : "Stripe 无法验证您的支付状态。请重试或联系客服。");
+      }
+    } catch (err) {
+      console.error("Error verifying Stripe session:", err);
+      setCheckoutStep("cart");
+    }
+  };
+
   // Verify Stripe checkout session on mount (redirected back from Stripe)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1049,53 +1106,12 @@ export default function App() {
     const sessionId = params.get("session_id");
 
     if (checkoutSuccess && sessionId) {
-      setCheckoutStep("processing");
-      setCartOpen(true);
-
-      fetch(`/api/verify-session?session_id=${sessionId}`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.paid && data.books) {
-            setUnlockedBookIds((prev) => {
-              const next = [...prev];
-              data.books.forEach((id: string) => {
-                if (!next.includes(id)) {
-                  next.push(id);
-                }
-              });
-              return next;
-            });
-            
-            // Reconstruct cart items or receipt items
-            const items = data.books.map((id: string) => 
-              books.find((b) => b.id === id)
-            ).filter(Boolean);
-            
-            setOrderReceipt(items);
-            setCheckoutStep("success");
-            setCartItems([]); // Clear cart upon success
-
-            // Clean URL query parameters
-            const cleanUrl = window.location.origin + window.location.pathname;
-            window.history.replaceState({}, document.title, cleanUrl);
-
-            if (audioEngineRef.current) audioEngineRef.current.playChime();
-          } else {
-            setCheckoutStep("cart");
-            alert(lang === "en" 
-              ? "Your payment could not be verified by Stripe. Please contact support." 
-              : "Stripe 无法验证您的支付状态。请重试或联系客服。");
-          }
-        })
-        .catch((err) => {
-          console.error("Error verifying Stripe session:", err);
-          setCheckoutStep("cart");
-        });
+      verifyAndCompleteSession(sessionId);
     } else if (params.get("checkout_canceled") === "true") {
       setCheckoutStep("cart");
       setCartOpen(true);
       // Clean URL query parameters
-      const cleanUrl = window.location.origin + window.location.pathname;
+      const cleanUrl = window.location.origin + window.location.pathname + window.location.hash;
       window.history.replaceState({}, document.title, cleanUrl);
     }
   }, [lang]);
@@ -1120,7 +1136,43 @@ export default function App() {
 
       const data = await response.json();
       if (data.url) {
-        window.location.href = data.url;
+        // If simulated or local sandbox checkout URL, verify directly in-app without full page reload
+        if (data.simulated || data.url.includes("checkout_success")) {
+          try {
+            const urlObj = new URL(data.url, window.location.href);
+            const sessionId = urlObj.searchParams.get("session_id");
+            if (sessionId) {
+              await verifyAndCompleteSession(sessionId);
+              return;
+            }
+          } catch (e) {
+            console.error("Error parsing sandbox URL:", e);
+          }
+        }
+
+        // For real Stripe hosted checkout:
+        // Check if running inside an iframe (e.g. AI Studio preview)
+        const isIframe = window.top !== window;
+        if (isIframe) {
+          // Stripe hosted checkout page blocks loading inside iframes for PCI compliance (showing a skeleton/blank page).
+          // Open Stripe Checkout in a new window/tab so payment loads cleanly
+          const opened = window.open(data.url, "_blank");
+          if (!opened) {
+            // If popup blocker intercepted window.open, fall back to top navigation
+            try {
+              window.top!.location.href = data.url;
+            } catch (e) {
+              window.location.href = data.url;
+            }
+          } else {
+            setCheckoutStep("cart");
+            alert(lang === "en"
+              ? "Stripe Secure Checkout opened in a new tab. Please complete payment there."
+              : "Stripe 安全支付已在新标签页中打开，请在新的窗口中完成付款。");
+          }
+        } else {
+          window.location.href = data.url;
+        }
       } else {
         throw new Error(data.error || "Failed to create checkout session");
       }
@@ -3734,12 +3786,15 @@ export default function App() {
             <div className="lg:col-span-5 flex flex-col justify-center create-list-container" id="create-middle-col">
               <div className="space-y-6">
                 {whatWeCreateContent.items.map((item) => {
-                  const isComingSoon = item.num !== "01";
+                  const isComingSoon = item.num !== "01" && item.num !== "02";
                   return (
                     <div
                       key={item.num}
                       onClick={(e) => {
-                        if (!isComingSoon && item.num === "01") handleNavigation("editorial-intelligence", e);
+                        if (!isComingSoon) {
+                          if (item.num === "01") handleNavigation("editorial-intelligence", e);
+                          if (item.num === "02") handleNavigation("digital-publishing", e);
+                        }
                       }}
                       className={`create-list-item flex gap-6 items-start p-5 border-b border-[#D8D2C6]/40 rounded-sm transition-all duration-300 group ${isComingSoon ? "cursor-default opacity-80" : "hover:bg-[#E8DDCF]/30 cursor-pointer"}`}
                       id={`create-item-${item.num}`}
@@ -3954,21 +4009,24 @@ export default function App() {
               const textClass = book.textColor || "text-[#F4F1EB]";
               const coverImg = book.cover || book.coverImageUrl || "";
               const hasCustomImage = typeof coverImg === "string" && coverImg.trim().length > 0 && !coverImg.includes("IMMERSATION-LOGO-Light-scaled.png");
+              const priceVal = Number(book?.price || 0);
+              const isFree = priceVal === 0;
+              const isUnlocked = unlockedBookIds.includes(book.id) || isFree;
 
               return (
                 <div
                   key={book.id}
-                  onClick={() => {
-                    setSelectedReadingBookId(book.id);
-                    setActiveView("reading-room");
-                    window.scrollTo({ top: 0, behavior: "smooth" });
-                  }}
-                  className="book-cover-wrapper flex flex-col items-center group cursor-pointer"
+                  className="book-cover-wrapper flex flex-col items-center group"
                   id={`book-item-${book.id}`}
                 >
                   {/* 3D Realistic Book-Slab with cover texture and leather shadow */}
                   <div
-                    className={`w-full max-w-[280px] aspect-[3/4.2] ${bgClass} border ${borderClass} rounded-sm shadow-lg hover:shadow-2xl transition-all duration-500 relative transform group-hover:-translate-y-4 group-hover:rotate-1 flex flex-col justify-between p-8 overflow-hidden`}
+                    onClick={() => {
+                      setSelectedReadingBookId(book.id);
+                      setActiveView("reading-room");
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    className={`w-full max-w-[280px] aspect-[3/4.2] ${bgClass} border ${borderClass} rounded-sm shadow-lg hover:shadow-2xl transition-all duration-500 relative transform group-hover:-translate-y-4 group-hover:rotate-1 flex flex-col justify-between p-8 overflow-hidden cursor-pointer`}
                     id={`book-slab-${book.id}`}
                   >
                     {/* Cover Image display if image URL is supplied */}
@@ -4059,6 +4117,26 @@ export default function App() {
 
                 {/* Companion description text on page (aligned under the book cover) */}
                 <div className="mt-6 text-center max-w-[260px] flex flex-col items-center">
+                  {/* Price / Access Status Badge */}
+                  <div className="mb-2">
+                    {isFree ? (
+                      <span className="text-[10px] font-mono font-bold text-emerald-800 bg-emerald-100/90 px-2.5 py-0.5 rounded border border-emerald-300/70 uppercase tracking-wider inline-flex items-center gap-1 shadow-2xs">
+                        <Sparkles className="w-3 h-3 text-emerald-600" />
+                        {lang === "en" ? "Free Access • $0.00" : "免费畅读 • $0.00"}
+                      </span>
+                    ) : isUnlocked ? (
+                      <span className="text-[10px] font-mono font-bold text-stone-700 bg-stone-200/90 px-2.5 py-0.5 rounded border border-stone-300 uppercase tracking-wider inline-flex items-center gap-1 shadow-2xs">
+                        <Check className="w-3 h-3 text-emerald-600" />
+                        {lang === "en" ? `Unlocked • $${priceVal.toFixed(2)}` : `已解锁 • $${priceVal.toFixed(2)}`}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-mono font-bold text-[#8B5A44] bg-[#8B5A44]/10 px-2.5 py-0.5 rounded border border-[#8B5A44]/25 uppercase tracking-wider inline-flex items-center gap-1 shadow-2xs">
+                        <Lock className="w-3 h-3 text-[#8B5A44]" />
+                        {lang === "en" ? `Paid Volume • $${priceVal.toFixed(2)}` : `付费选卷 • $${priceVal.toFixed(2)}`}
+                      </span>
+                    )}
+                  </div>
+
                   <span className="text-[10px] font-display font-bold uppercase tracking-widest text-[#8B5A44] mb-1">
                     {(typeof book.pillar === "object" && book.pillar !== null ? (book.pillar[lang] || book.pillar.en || book.pillar.zh) : book.pillar) || 
                      (typeof book.category === "object" && book.category !== null ? (book.category[lang] || book.category.en || book.category.zh) : book.category) || 
@@ -4071,15 +4149,41 @@ export default function App() {
                     {typeof book?.description === "object" && book?.description !== null ? (book.description[lang] || book.description.en || book.description.zh) : (book?.description || "")}
                   </p>
                   
-                  {/* Premium Reading Actions */}
-                  <div className="mt-4 flex items-center gap-2 border-t border-[#D8D2C6]/30 pt-3 w-full justify-center">
-                    <span className="text-[10px] font-display font-bold uppercase tracking-wider text-[#8B5A44] group-hover:underline">
-                      {lang === "en" ? "Read Online" : "在线阅读"}
-                    </span>
-                    <span className="text-[10px] text-[#1C1C1C]/30">•</span>
-                    <span className="text-[10px] font-display font-medium uppercase tracking-wider text-[#1C1C1C]/50 hover:text-[#1C1C1C]">
-                      {lang === "en" ? "Reading Room" : "进入阅读室"}
-                    </span>
+                  {/* Premium Reading & Purchase Actions */}
+                  <div className="mt-4 flex items-center justify-center gap-2 border-t border-[#D8D2C6]/30 pt-3 w-full">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedReadingBookId(book.id);
+                        setActiveView("reading-room");
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                      className="text-[10px] font-display font-bold uppercase tracking-wider text-[#8B5A44] hover:text-[#1A2F24] transition-colors flex items-center gap-1 cursor-pointer"
+                    >
+                      <BookOpen className="w-3 h-3" />
+                      <span>{isFree ? (lang === "en" ? "Read Free" : "免费阅读") : (lang === "en" ? "Read Online" : "在线阅读")}</span>
+                    </button>
+
+                    {!isUnlocked && (
+                      <>
+                        <span className="text-[10px] text-[#1C1C1C]/30">•</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCartItems((prev) => {
+                              if (prev.some((item) => item.id === book.id)) return prev;
+                              return [...prev, book];
+                            });
+                            setCartOpen(true);
+                            if (audioEngineRef.current) audioEngineRef.current.playChime();
+                          }}
+                          className="text-[10px] font-display font-bold uppercase tracking-wider text-[#1A2F24] bg-[#8B5A44]/15 hover:bg-[#8B5A44] hover:text-[#F4F1EB] px-2 py-1 rounded transition-colors flex items-center gap-1 cursor-pointer"
+                        >
+                          <ShoppingBag className="w-3 h-3" />
+                          <span>{lang === "en" ? `Buy $${priceVal.toFixed(2)}` : `购买 $${priceVal.toFixed(2)}`}</span>
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>

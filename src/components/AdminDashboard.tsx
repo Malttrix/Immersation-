@@ -1398,11 +1398,12 @@ export default function AdminDashboard({
     const rawHtml5 = (eb.html5FlipbookUrl || eb.flipbookUrl || "").trim();
     let initialHtml5 = rawHtml5;
     if (!initialHtml5 && eb.epubSourceUrl && typeof eb.epubSourceUrl === "string") {
-      initialHtml5 = eb.epubSourceUrl.trim();
+      const epub = eb.epubSourceUrl.trim();
+      if (epub.toLowerCase().endsWith(".epub")) {
+        initialHtml5 = epub.substring(0, epub.length - 5) + ".html";
+      }
     }
-    if (initialHtml5.toLowerCase().endsWith(".epub")) {
-      initialHtml5 = initialHtml5.substring(0, initialHtml5.length - 5) + ".html";
-    } else if (initialHtml5.toLowerCase().endsWith(".pdf")) {
+    if (initialHtml5.toLowerCase().endsWith(".pdf")) {
       initialHtml5 = "";
     }
     setEbHtml5FlipbookUrl(initialHtml5);
@@ -1641,11 +1642,12 @@ export default function AdminDashboard({
 
     let cleanHtml5Url = ebHtml5FlipbookUrl.trim();
     if (!cleanHtml5Url && ebEpubSourceUrl && typeof ebEpubSourceUrl === "string") {
-      cleanHtml5Url = ebEpubSourceUrl.trim();
+      const epub = ebEpubSourceUrl.trim();
+      if (epub.toLowerCase().endsWith(".epub")) {
+        cleanHtml5Url = epub.substring(0, epub.length - 5) + ".html";
+      }
     }
-    if (cleanHtml5Url.toLowerCase().endsWith(".epub")) {
-      cleanHtml5Url = cleanHtml5Url.substring(0, cleanHtml5Url.length - 5) + ".html";
-    } else if (cleanHtml5Url.toLowerCase().endsWith(".pdf")) {
+    if (cleanHtml5Url.toLowerCase().endsWith(".pdf")) {
       cleanHtml5Url = "";
     }
 
@@ -2225,7 +2227,7 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                       const downloadFileUrl = fd.get("downloadFileUrl") as string || "";
                       const discountPercent = parseInt(fd.get("discountPercent") as string) || 0;
                       const format = fd.get("bookFormat") as string || "digital-guide";
-                      const html5FlipbookUrl = (fd.get("html5FlipbookUrl") as string || fd.get("flipbookUrl") as string || fd.get("epubSourceUrl") as string || "").trim();
+                      const html5FlipbookUrl = (fd.get("html5FlipbookUrl") as string || fd.get("flipbookUrl") as string || "").trim();
                       const lastConvertedAt = fd.get("lastConvertedAt") as string || null;
                       const epubConversionStatus = fd.get("epubConversionStatus") as string || null;
 
@@ -2246,7 +2248,7 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                         format,
                         html5FlipbookUrl,
                         flipbookUrl: html5FlipbookUrl,
-                        epubSourceUrl: html5FlipbookUrl,
+                        epubSourceUrl: editingProduct?.epubSourceUrl || downloadFileUrl || "",
                         lastConvertedAt,
                         epubConversionStatus
                       };
@@ -2255,16 +2257,16 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                         const updated = { ...editingProduct, ...payload };
                         setBooks(books.map(b => b.id === editingProduct.id ? updated : b));
                         if (supabase) {
-                          supabase.from("products").update(updated).eq("id", editingProduct.id).then(({ error }) => {
-                            if (error) console.warn("Supabase update product error:", error);
+                          syncProductToSupabase(updated, true, editingProduct.id).then(({ success, error }) => {
+                            if (!success && error) console.warn("Supabase update product error:", error);
                           });
                         }
                         addAuditLog("Edit Product", `Updated digital volume "${titleEN}"`);
                       } else {
                         setBooks([...books, payload]);
                         if (supabase) {
-                          supabase.from("products").insert([payload]).then(({ error }) => {
-                            if (error) console.warn("Supabase create product error:", error);
+                          syncProductToSupabase(payload, false, payload.id).then(({ success, error }) => {
+                            if (!success && error) console.warn("Supabase create product error:", error);
                           });
                         }
                         addAuditLog("Add Product", `Created new digital volume "${titleEN}"`);
@@ -2332,23 +2334,22 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                         <input 
                           type="url" 
                           name="html5FlipbookUrl" 
-                          value={editingProduct?.html5FlipbookUrl || editingProduct?.flipbookUrl || editingProduct?.epubSourceUrl || ""} 
+                          value={editingProduct?.html5FlipbookUrl || editingProduct?.flipbookUrl || ""} 
                           onChange={(e) => {
                             if (editingProduct) {
                               setEditingProduct({ 
                                 ...editingProduct, 
                                 html5FlipbookUrl: e.target.value,
-                                flipbookUrl: e.target.value,
-                                epubSourceUrl: e.target.value 
+                                flipbookUrl: e.target.value
                               });
                             }
                           }}
-                          placeholder="https://online.fliphtml5.com/xxxx/yyyy/ or https://heyzine.com/flip-book/..." 
+                          placeholder="https://animated-frangollo-61bd01.netlify.app/ or https://online.fliphtml5.com/..." 
                           className="flex-1 bg-white border border-[#D8D2C6] rounded-xs p-2 focus:outline-none focus:border-[#8B5A44] font-mono text-xs text-stone-800" 
                         />
-                        {(editingProduct?.html5FlipbookUrl || editingProduct?.flipbookUrl || editingProduct?.epubSourceUrl) && (
+                        {(editingProduct?.html5FlipbookUrl || editingProduct?.flipbookUrl) && (
                           <a
-                            href={editingProduct?.html5FlipbookUrl || editingProduct?.flipbookUrl || editingProduct?.epubSourceUrl}
+                            href={editingProduct?.html5FlipbookUrl || editingProduct?.flipbookUrl}
                             target="_blank"
                             rel="noreferrer"
                             className="bg-[#1A2F24] hover:bg-[#8B5A44] text-[#F4F1EB] px-3.5 py-2 rounded-xs font-semibold text-xs transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer"

@@ -609,7 +609,7 @@ export default function DigitalPublishingView({
                       <div className="flex gap-2">
                         <button 
                           onClick={() => handleAction(() => {
-                            if (onNavigateToReadingRoom) onNavigateToReadingRoom(prod.id === "starter-kit" ? "starter-kit" : "starter-kit");
+                            if (onNavigateToReadingRoom) onNavigateToReadingRoom(prod.id);
                           })}
                           className="flex-1 bg-[#1A2F24] hover:bg-[#8B5A44] text-[#F4F1EB] font-display text-[9px] font-semibold uppercase tracking-[0.15em] py-2.5 rounded-sm transition-colors text-center flex items-center justify-center gap-1 cursor-pointer"
                         >
