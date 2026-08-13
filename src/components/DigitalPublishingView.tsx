@@ -542,7 +542,7 @@ export default function DigitalPublishingView({
                       {prod.cover && !prod.cover.includes("IMMERSATION-LOGO-Light-scaled.png") && (
                         <div className="absolute inset-0 z-0">
                           <img 
-                            src={prod.cover} 
+                            src={prod.cover || undefined} 
                             referrerPolicy="no-referrer"
                             alt={prod.title[lang]} 
                             className="w-full h-full object-cover"

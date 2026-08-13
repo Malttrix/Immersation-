@@ -97,7 +97,9 @@ export const productBooks: CardItem[] = [
     borderColor: "border-[#8B5A44]",
     textColor: "text-[#F4F1EB]",
     accentColor: "text-[#E8DDCF]",
-    price: 19.00
+    price: 19.00,
+    html5FlipbookUrl: "https://sparkling-semifreddo-a67780.netlify.app/",
+    epubSourceUrl: "https://cms.immersation.com/wp-content/uploads/files/longevity-nutrient-c15-research-brief-en.epub"
   },
   {
     id: "wealth-frameworks",

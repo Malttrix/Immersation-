@@ -321,6 +321,19 @@ const sanitizeBooks = (items: any[]): any[] => {
       seen.add(identifier);
       const palette = defaultCoverPalettes[idx % defaultCoverPalettes.length];
       const coverImg = b.cover || b.coverImageUrl || b.cover_image_url || "";
+      let rawFlip = typeof b.html5FlipbookUrl === "string" ? b.html5FlipbookUrl.trim() : (typeof b.flipbookUrl === "string" ? b.flipbookUrl.trim() : "");
+      if (!rawFlip && b.epubSourceUrl && typeof b.epubSourceUrl === "string") {
+        rawFlip = b.epubSourceUrl.trim();
+      }
+      let sanitizedFlipbookUrl = rawFlip;
+      if (sanitizedFlipbookUrl.toLowerCase().endsWith(".epub")) {
+        sanitizedFlipbookUrl = sanitizedFlipbookUrl.substring(0, sanitizedFlipbookUrl.length - 5) + ".html";
+      } else if (sanitizedFlipbookUrl.toLowerCase().endsWith(".pdf")) {
+        sanitizedFlipbookUrl = "";
+      }
+      if (sanitizedFlipbookUrl.startsWith("http://")) {
+        sanitizedFlipbookUrl = sanitizedFlipbookUrl.replace("http://", "https://");
+      }
       uniqueItems.push({
         ...b,
         id: identifier,
@@ -336,6 +349,8 @@ const sanitizeBooks = (items: any[]): any[] => {
         accentColor: b.accentColor || palette.accentColor,
         cover: coverImg,
         coverImageUrl: coverImg,
+        html5FlipbookUrl: sanitizedFlipbookUrl,
+        flipbookUrl: sanitizedFlipbookUrl,
       });
     }
   });
@@ -396,7 +411,31 @@ export default function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [ambientOn, setAmbientOn] = useState(false);
   const [books, setBooks] = useState<any[]>(() => {
-    return sanitizeBooks(productBooks);
+    let initial = [...productBooks];
+    try {
+      const saved = localStorage.getItem("immersation_books");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          initial = initial.map((defBook: any) => {
+            const localBook = parsed.find((b: any) => b.id === defBook.id);
+            if (localBook) {
+              return { ...defBook, ...localBook };
+            }
+            return defBook;
+          });
+          const initialIds = new Set(initial.map(b => b.id));
+          parsed.forEach((localBook: any) => {
+            if (localBook.id && !initialIds.has(localBook.id)) {
+              initial.push(localBook);
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.error("Error reading immersation_books from localStorage", e);
+    }
+    return sanitizeBooks(initial);
   });
   useEffect(() => {
     localStorage.setItem("immersation_books", JSON.stringify(books));
@@ -409,7 +448,26 @@ export default function App() {
       const fetchSupabaseProducts = () => {
         supabase.from('products').select('*').then(({ data, error }) => {
           if (!error && data) {
-            setBooks(sanitizeBooks(data));
+            setBooks(prevBooks => {
+              const updated = data.map((spItem: any) => {
+                const existing = prevBooks.find((b: any) => b.id === spItem.id);
+                const spHtml5 = spItem.html5FlipbookUrl || spItem.html5_flipbook_url || spItem.flipbookUrl;
+                const finalHtml5 = spHtml5 && String(spHtml5).trim() !== "" ? String(spHtml5).trim() : (existing?.html5FlipbookUrl || existing?.flipbookUrl || "");
+                return {
+                  ...existing,
+                  ...spItem,
+                  html5FlipbookUrl: finalHtml5,
+                  flipbookUrl: finalHtml5
+                };
+              });
+              const spIds = new Set(data.map((sp: any) => sp.id));
+              prevBooks.forEach((pb: any) => {
+                if (pb.id && !spIds.has(pb.id)) {
+                  updated.push(pb);
+                }
+              });
+              return sanitizeBooks(updated);
+            });
           }
         });
       };
@@ -3918,7 +3976,7 @@ export default function App() {
                       <>
                         <div className="absolute inset-0 z-0 overflow-hidden rounded-sm">
                           <img 
-                            src={coverImg} 
+                            src={coverImg || undefined} 
                             referrerPolicy="no-referrer"
                             alt={typeof book?.title === "object" && book?.title !== null ? (book.title[lang] || book.title.en) : (book?.title || "Book Cover")}
                             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"

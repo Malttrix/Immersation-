@@ -23,6 +23,7 @@ import {
   FileSpreadsheet,
   RefreshCw,
   Send,
+  ExternalLink,
   Copy,
   Upload,
   Globe,
@@ -33,8 +34,7 @@ import {
   Download,
   Database,
   MessageSquare,
-  Clock,
-  ExternalLink
+  Clock
 } from "lucide-react";
 import {
   LineChart,
@@ -1014,7 +1014,8 @@ export default function AdminDashboard({
   const [ebDiscountPercent, setEbDiscountPercent] = useState(0);
   const [ebFormat, setEbFormat] = useState("digital-guide");
 
-  // EPUB conversion state variables
+  // HTML5 Flipbook URL state variables
+  const [ebHtml5FlipbookUrl, setEbHtml5FlipbookUrl] = useState("");
   const [ebEpubSourceUrl, setEbEpubSourceUrl] = useState("");
   const [ebLastConvertedAt, setEbLastConvertedAt] = useState<string | null>(null);
   const [ebEpubConversionStatus, setEbEpubConversionStatus] = useState<string | null>(null);
@@ -1292,6 +1293,7 @@ export default function AdminDashboard({
     setEbChapters("");
     setEbFileUrl("");
     setEbFormat("Wealth Framework");
+    setEbHtml5FlipbookUrl("");
     setEbEpubSourceUrl("");
     setEbLastConvertedAt(null);
     setEbEpubConversionStatus(null);
@@ -1390,9 +1392,24 @@ export default function AdminDashboard({
     setEbDescZH(eb.description?.zh || "");
     setEbCover(eb.cover || "");
     setEbChapters(Array.isArray(eb.chapters) ? eb.chapters.map((c: any) => `${c.time || ""} ${c.title || ""}`).join("\n") : "");
-    setEbFileUrl(eb.fileUrl || "");
+    setEbFileUrl(eb.fileUrl || eb.downloadFileUrl || "");
     setEbFormat(eb.format || "Wealth Framework");
-    setEbEpubSourceUrl(eb.epubSourceUrl || "");
+
+    const rawHtml5 = (eb.html5FlipbookUrl || eb.flipbookUrl || "").trim();
+    let initialHtml5 = rawHtml5;
+    if (!initialHtml5 && eb.epubSourceUrl && typeof eb.epubSourceUrl === "string") {
+      initialHtml5 = eb.epubSourceUrl.trim();
+    }
+    if (initialHtml5.toLowerCase().endsWith(".epub")) {
+      initialHtml5 = initialHtml5.substring(0, initialHtml5.length - 5) + ".html";
+    } else if (initialHtml5.toLowerCase().endsWith(".pdf")) {
+      initialHtml5 = "";
+    }
+    setEbHtml5FlipbookUrl(initialHtml5);
+
+    const rawEpub = (eb.epubSourceUrl || eb.fileUrl || eb.downloadFileUrl || "").trim();
+    setEbEpubSourceUrl(rawEpub);
+
     setEbLastConvertedAt(eb.lastConvertedAt || null);
     setEbEpubConversionStatus(eb.epubConversionStatus || null);
     setShowEbookForm(true);
@@ -1622,6 +1639,16 @@ export default function AdminDashboard({
       return { time: "", title: line.trim() };
     }).filter(c => c.title);
 
+    let cleanHtml5Url = ebHtml5FlipbookUrl.trim();
+    if (!cleanHtml5Url && ebEpubSourceUrl && typeof ebEpubSourceUrl === "string") {
+      cleanHtml5Url = ebEpubSourceUrl.trim();
+    }
+    if (cleanHtml5Url.toLowerCase().endsWith(".epub")) {
+      cleanHtml5Url = cleanHtml5Url.substring(0, cleanHtml5Url.length - 5) + ".html";
+    } else if (cleanHtml5Url.toLowerCase().endsWith(".pdf")) {
+      cleanHtml5Url = "";
+    }
+
     const payload = {
       id: ebId,
       title: { en: ebTitleEN, zh: ebTitleZH },
@@ -1631,48 +1658,61 @@ export default function AdminDashboard({
       cover: ebCover || "https://cms.immersation.com/wp-content/uploads/2026/07/IMMERSATION-LOGO-Light-scaled.png",
       coverImageUrl: ebCover || "https://cms.immersation.com/wp-content/uploads/2026/07/IMMERSATION-LOGO-Light-scaled.png",
       chapters: parsedChapters,
-      fileUrl: ebFileUrl,
-      downloadFileUrl: ebFileUrl, // Sync both download file fields for security
+      fileUrl: ebFileUrl || ebEpubSourceUrl,
+      downloadFileUrl: ebFileUrl || ebEpubSourceUrl, // Sync both download file fields for security
       discountPercent: ebDiscountPercent,
       format: ebFormat,
       textColor: "text-[#F4F1EB]",
       accentColor: "text-[#B69A6B]",
-      epubSourceUrl: ebEpubSourceUrl,
+      html5FlipbookUrl: cleanHtml5Url,
+      flipbookUrl: cleanHtml5Url,
+      epubSourceUrl: ebEpubSourceUrl || ebFileUrl,
       lastConvertedAt: ebLastConvertedAt,
       epubConversionStatus: ebEpubConversionStatus
+    };
+
+    const syncProductToSupabase = async (fullPayload: any, isEditMode: boolean, targetId: string) => {
+      let currentPayload: any = { ...fullPayload };
+      let strippedColumns: string[] = [];
+      let attempts = 0;
+      let lastErr: any = null;
+
+      while (attempts < 6) {
+        attempts++;
+        const res = isEditMode
+          ? await supabase.from("products").update(currentPayload).eq("id", targetId)
+          : await supabase.from("products").insert([currentPayload]);
+
+        if (!res.error) {
+          if (strippedColumns.length > 0) {
+            console.warn("[Supabase Sync] Products table updated with fallback (stripped columns:", strippedColumns.join(", "), ")");
+          }
+          return { success: true, strippedColumns };
+        }
+
+        lastErr = res.error;
+        const errMsg = res.error.message || String(res.error);
+        const match = errMsg.match(/Could not find the ['"]?([a-zA-Z0-9_]+)['"]? column/i);
+        if (match && match[1]) {
+          const missingCol = match[1];
+          strippedColumns.push(missingCol);
+          delete currentPayload[missingCol];
+        } else {
+          break;
+        }
+      }
+
+      return { success: false, error: lastErr, strippedColumns };
     };
 
     if (editingEbook) {
       setBooks(books.map(b => b.id === editingEbook.id ? payload : b));
       if (supabase) {
-        supabase.from("products").update(payload).eq("id", editingEbook.id).then(({ error }) => {
-          if (error) {
-            console.warn("Supabase edit product error:", error);
-            // Fallback retry with basic columns if missing new columns in Supabase
-            const basePayload = {
-              id: payload.id,
-              title: payload.title,
-              tagline: payload.tagline,
-              price: payload.price,
-              description: payload.description,
-              cover: payload.cover,
-              fileUrl: payload.fileUrl
-            };
-            supabase.from("products").update(basePayload).eq("id", editingEbook.id).then(({ error: err2 }) => {
-              if (err2) {
-                // Second minimal fallback without cover column if cover is missing in database schema
-                const minPayload = { id: payload.id, title: payload.title, tagline: payload.tagline, price: payload.price };
-                supabase.from("products").update(minPayload).eq("id", editingEbook.id).then(({ error: err3 }) => {
-                  if (err3) {
-                    setSyncError(`products (ebooks) table update: ${error.message || String(error)}`);
-                  } else {
-                    setSyncError(`products (ebooks) table update: ${error.message || String(error)} (Core title & price synced as fallback)`);
-                  }
-                });
-              } else {
-                setSyncError(`products (ebooks) table update: ${error.message || String(error)} (Core product fields synced as fallback)`);
-              }
-            });
+        syncProductToSupabase(payload, true, editingEbook.id).then(({ success, error, strippedColumns }) => {
+          if (!success && error) {
+            setSyncError(`products (ebooks) table update: ${error.message || String(error)}`);
+          } else if (strippedColumns && strippedColumns.length > 0) {
+            setSyncError(`products (ebooks) table update: Could not find column '${strippedColumns.join("', '")}' in the schema cache (Core product fields synced as fallback)`);
           }
         });
       }
@@ -1680,32 +1720,11 @@ export default function AdminDashboard({
     } else {
       setBooks([...books, payload]);
       if (supabase) {
-        supabase.from("products").insert([payload]).then(({ error }) => {
-          if (error) {
-            console.warn("Supabase create product error:", error);
-            const basePayload = {
-              id: payload.id,
-              title: payload.title,
-              tagline: payload.tagline,
-              price: payload.price,
-              description: payload.description,
-              cover: payload.cover,
-              fileUrl: payload.fileUrl
-            };
-            supabase.from("products").insert([basePayload]).then(({ error: err2 }) => {
-              if (err2) {
-                const minPayload = { id: payload.id, title: payload.title, tagline: payload.tagline, price: payload.price };
-                supabase.from("products").insert([minPayload]).then(({ error: err3 }) => {
-                  if (err3) {
-                    setSyncError(`products (ebooks) table insert: ${error.message || String(error)}`);
-                  } else {
-                    setSyncError(`products (ebooks) table insert: ${error.message || String(error)} (Core title & price synced as fallback)`);
-                  }
-                });
-              } else {
-                setSyncError(`products (ebooks) table insert: ${error.message || String(error)} (Core product fields synced as fallback)`);
-              }
-            });
+        syncProductToSupabase(payload, false, payload.id).then(({ success, error, strippedColumns }) => {
+          if (!success && error) {
+            setSyncError(`products (ebooks) table insert: ${error.message || String(error)}`);
+          } else if (strippedColumns && strippedColumns.length > 0) {
+            setSyncError(`products (ebooks) table insert: Could not find column '${strippedColumns.join("', '")}' in the schema cache (Core product fields synced as fallback)`);
           }
         });
       }
@@ -1917,6 +1936,9 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "discountPercent" NUMERIC D
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "format" JSONB;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "textColor" TEXT DEFAULT 'text-[#F4F1EB]';
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "accentColor" TEXT DEFAULT 'text-[#B69A6B]';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "flipbookUrl" TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "html5FlipbookUrl" TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "html5_flipbook_url" TEXT;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubSourceUrl" TEXT;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "lastConvertedAt" TEXT;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT;`;
@@ -1960,6 +1982,9 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "discountPercent" NUMERIC D
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "format" JSONB;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "textColor" TEXT DEFAULT 'text-[#F4F1EB]';
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "accentColor" TEXT DEFAULT 'text-[#B69A6B]';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "flipbookUrl" TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "html5FlipbookUrl" TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "html5_flipbook_url" TEXT;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubSourceUrl" TEXT;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "lastConvertedAt" TEXT;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT;`}
@@ -2200,7 +2225,7 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                       const downloadFileUrl = fd.get("downloadFileUrl") as string || "";
                       const discountPercent = parseInt(fd.get("discountPercent") as string) || 0;
                       const format = fd.get("bookFormat") as string || "digital-guide";
-                      const epubSourceUrl = fd.get("epubSourceUrl") as string || "";
+                      const html5FlipbookUrl = (fd.get("html5FlipbookUrl") as string || fd.get("flipbookUrl") as string || fd.get("epubSourceUrl") as string || "").trim();
                       const lastConvertedAt = fd.get("lastConvertedAt") as string || null;
                       const epubConversionStatus = fd.get("epubConversionStatus") as string || null;
 
@@ -2219,7 +2244,9 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                         fileUrl: downloadFileUrl, // Sync both download fields
                         discountPercent,
                         format,
-                        epubSourceUrl,
+                        html5FlipbookUrl,
+                        flipbookUrl: html5FlipbookUrl,
+                        epubSourceUrl: html5FlipbookUrl,
                         lastConvertedAt,
                         epubConversionStatus
                       };
@@ -2299,71 +2326,43 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
 
                     <div className="md:col-span-2 border-t border-[#D8D2C6]/30 pt-3">
                       <label className="block text-xs font-semibold text-stone-700 mb-1">
-                        {lang === "en" ? "EPUB Source URL for Flip Book" : "翻页阅读 EPUB 资源链接"}
+                        {lang === "en" ? "HTML5 Flipbook Embed URL" : "在线翻页书 HTML5 嵌入链接"}
                       </label>
                       <div className="flex gap-2">
                         <input 
                           type="url" 
-                          name="epubSourceUrl" 
-                          value={editingProduct?.epubSourceUrl || ""} 
+                          name="html5FlipbookUrl" 
+                          value={editingProduct?.html5FlipbookUrl || editingProduct?.flipbookUrl || editingProduct?.epubSourceUrl || ""} 
                           onChange={(e) => {
                             if (editingProduct) {
-                              setEditingProduct({ ...editingProduct, epubSourceUrl: e.target.value });
+                              setEditingProduct({ 
+                                ...editingProduct, 
+                                html5FlipbookUrl: e.target.value,
+                                flipbookUrl: e.target.value,
+                                epubSourceUrl: e.target.value 
+                              });
                             }
                           }}
-                          placeholder="https://your-wp-media.com/uploads/book.epub" 
-                          className="flex-1 bg-white border border-[#D8D2C6] rounded-xs p-2 focus:outline-none focus:border-[#8B5A44] font-mono text-xs" 
+                          placeholder="https://online.fliphtml5.com/xxxx/yyyy/ or https://heyzine.com/flip-book/..." 
+                          className="flex-1 bg-white border border-[#D8D2C6] rounded-xs p-2 focus:outline-none focus:border-[#8B5A44] font-mono text-xs text-stone-800" 
                         />
-                        <button
-                          type="button"
-                          disabled={isConverting}
-                          onClick={() => handleConvertEpub(editingProduct?.id, editingProduct?.epubSourceUrl || "")}
-                          className="bg-[#1A2F24] hover:bg-[#8B5A44] disabled:bg-stone-300 text-[#F4F1EB] px-4 py-2 rounded-xs font-semibold text-xs transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer"
-                        >
-                          {isConverting ? (
-                            <>
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                              <span>{lang === "en" ? "Converting..." : "转换中..."}</span>
-                            </>
-                          ) : (
-                            <span>{lang === "en" ? "Convert EPUB" : "转换 EPUB"}</span>
-                          )}
-                        </button>
-                      </div>
-                      <p className="text-[10px] text-stone-500 mt-1">Separate EPUB link used strictly for generating the interactive Flip Book chapters inside the Reading Room.</p>
-                      
-                      {/* Hidden inputs to pass timestamp and status through FormData submit */}
-                      <input type="hidden" name="lastConvertedAt" value={editingProduct?.lastConvertedAt || ""} />
-                      <input type="hidden" name="epubConversionStatus" value={editingProduct?.epubConversionStatus || ""} />
-
-                      {editingProduct?.epubConversionStatus && (
-                        <div className="mt-2 flex items-center gap-3">
-                          {editingProduct.epubConversionStatus === "success" ? (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-xs">
-                              <CheckCircle className="w-3.5 h-3.5 text-green-600" />
-                              {lang === "en" ? "✓ Flip Book Ready" : "✓ 翻页书转换就绪"}
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-xs">
-                              <AlertCircle className="w-3.5 h-3.5 text-red-600" />
-                              {lang === "en" ? `Conversion Failed — ${editingProduct.epubConversionStatus.replace("failed: ", "")}` : `转换失败 — ${editingProduct.epubConversionStatus.replace("failed: ", "")}`}
-                            </span>
-                          )}
-                          {editingProduct?.lastConvertedAt && (
-                            <span className="text-[10px] text-stone-500">
-                              {lang === "en" ? `Last Generated: ${editingProduct.lastConvertedAt}` : `上次生成于: ${editingProduct.lastConvertedAt}`}
-                            </span>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => handleConvertEpub(editingProduct?.id, editingProduct?.epubSourceUrl || "")}
-                            className="text-[10px] text-[#8B5A44] hover:underline flex items-center gap-0.5 font-semibold cursor-pointer"
+                        {(editingProduct?.html5FlipbookUrl || editingProduct?.flipbookUrl || editingProduct?.epubSourceUrl) && (
+                          <a
+                            href={editingProduct?.html5FlipbookUrl || editingProduct?.flipbookUrl || editingProduct?.epubSourceUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="bg-[#1A2F24] hover:bg-[#8B5A44] text-[#F4F1EB] px-3.5 py-2 rounded-xs font-semibold text-xs transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer"
                           >
-                            <RefreshCw className="w-2.5 h-2.5" />
-                            {lang === "en" ? "Re-convert" : "重新转换"}
-                          </button>
-                        </div>
-                      )}
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>{lang === "en" ? "Test Link" : "测试链接"}</span>
+                          </a>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-stone-500 mt-1">
+                        {lang === "en" 
+                          ? "Input a direct HTML5 flipbook URL (FlipHTML5, Heyzine, Issuu, Canva, etc.). The Reading Room will render this interactive flipbook automatically for readers." 
+                          : "输入 HTML5 翻页书嵌入链接（如 FlipHTML5、Heyzine、Issuu 等）。在线阅读室将自动加载并全屏展示该翻页书。"}
+                      </p>
                     </div>
 
                     <div className="md:col-span-2">
@@ -2396,7 +2395,7 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                     <div key={book.id} className="flex gap-4 p-4 border border-stone-200 rounded justify-between items-start hover:border-[#8B5A44] transition-all">
                       <div className="flex gap-4 flex-1 pr-4">
                         <img
-                          src={book.coverImageUrl || "/placeholder-cover.jpg"}
+                          src={book.coverImageUrl || book.cover || undefined}
                           alt={book.title?.[lang] || "Book cover"}
                           className="w-16 h-24 object-cover rounded bg-[#E8DDCF]"
                         />
@@ -2437,16 +2436,10 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                               </span>
                             )}
 
-                            {book.epubSourceUrl && (
-                              book.epubConversionStatus === "success" ? (
-                                <span className="text-[11px] text-emerald-800 font-medium">
-                                  {lang === "en" ? "📖 Flip Book Ready" : "📖 翻页书已就绪"}
-                                </span>
-                              ) : (
-                                <span className="text-[11px] text-amber-600 font-medium">
-                                  {lang === "en" ? "⚠ Conversion Pending/Failed" : "⚠ 转换挂起或失败"}
-                                </span>
-                              )
+                            {(book.html5FlipbookUrl || book.flipbookUrl || book.epubSourceUrl) && (
+                              <span className="text-[11px] text-emerald-800 font-medium">
+                                {lang === "en" ? "📖 HTML5 Flipbook Linked" : "📖 HTML5 翻页书已关联"}
+                              </span>
                             )}
                           </div>
                         </div>
@@ -3825,65 +3818,34 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                       <div className="bg-[#E8DDCF]/10 border border-[#D8D2C6]/30 p-4 rounded-sm space-y-3">
                         <div>
                           <label className="block font-semibold text-[#1A2F24] mb-1">
-                            {lang === "en" ? "EPUB Source URL for Flip Book Conversion" : "翻页阅读 EPUB 资源转换链接"}
+                            {lang === "en" ? "HTML5 Flipbook Embed URL for Reading Room" : "在线翻页书 HTML5 嵌入链接"}
                           </label>
                           <div className="flex gap-2">
                             <input 
                               type="text" 
-                              value={ebEpubSourceUrl} 
-                              onChange={(e) => setEbEpubSourceUrl(e.target.value)} 
-                              placeholder="https://cms.immersation.com/uploads/book-asset.epub" 
-                              className="flex-1 bg-white border border-[#D8D2C6] rounded-xs p-2 font-mono text-stone-800" 
+                              value={ebHtml5FlipbookUrl} 
+                              onChange={(e) => setEbHtml5FlipbookUrl(e.target.value)} 
+                              placeholder="https://online.fliphtml5.com/xxxx/yyyy/ or https://heyzine.com/flip-book/..." 
+                              className="flex-1 bg-white border border-[#D8D2C6] rounded-xs p-2 font-mono text-stone-800 text-xs" 
                             />
-                            <button
-                              type="button"
-                              disabled={isConverting}
-                              onClick={() => handleConvertEpub(ebId, ebEpubSourceUrl)}
-                              className="bg-[#1A2F24] hover:bg-[#8B5A44] disabled:bg-stone-300 text-[#F4F1EB] px-4 py-2 rounded-xs font-semibold text-xs transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer"
-                            >
-                              {isConverting ? (
-                                <>
-                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                  <span>{lang === "en" ? "Converting..." : "转换中..."}</span>
-                                </>
-                              ) : (
-                                <span>{lang === "en" ? "Convert EPUB to Flip Book" : "转换为翻页书"}</span>
-                              )}
-                            </button>
+                            {ebHtml5FlipbookUrl && (
+                              <a
+                                href={ebHtml5FlipbookUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="bg-[#1A2F24] hover:bg-[#8B5A44] text-[#F4F1EB] px-3.5 py-2 rounded-xs font-semibold text-xs transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                                <span>{lang === "en" ? "Test Link" : "测试链接"}</span>
+                              </a>
+                            )}
                           </div>
                           <p className="text-[10px] text-stone-500 mt-1">
-                            {lang === "en" ? "This EPUB file will be parsed, split, and loaded directly into the interactive flip-book Reading Room, keeping your premium PDF file download secure." : "用于在线翻页阅读室转换。这不会影响买家购买后直接下载的 premium PDF 链接。"}
+                            {lang === "en" 
+                              ? "Input a direct HTML5 flipbook URL (FlipHTML5, Heyzine, Issuu, Canva, etc.). The Reading Room will render this interactive flipbook automatically for readers." 
+                              : "输入 HTML5 翻页书嵌入链接（如 FlipHTML5、Heyzine、Issuu 等）。在线阅读室将自动加载并全屏展示该翻页书。"}
                           </p>
                         </div>
-
-                        {ebEpubConversionStatus && (
-                          <div className="flex items-center gap-3 pt-1">
-                            {ebEpubConversionStatus === "success" ? (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-xs">
-                                <CheckCircle className="w-3.5 h-3.5 text-green-600" />
-                                {lang === "en" ? "✓ Flip Book Ready" : "✓ 翻页书转换就绪"}
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-xs">
-                                <AlertCircle className="w-3.5 h-3.5 text-red-600" />
-                                {lang === "en" ? `Conversion Failed — ${ebEpubConversionStatus.replace("failed: ", "")}` : `转换失败 — ${ebEpubConversionStatus.replace("failed: ", "")}`}
-                              </span>
-                            )}
-                            {ebLastConvertedAt && (
-                              <span className="text-[10px] text-stone-500">
-                                {lang === "en" ? `Last Generated: ${ebLastConvertedAt}` : `上次生成于: ${ebLastConvertedAt}`}
-                              </span>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => handleConvertEpub(ebId, ebEpubSourceUrl)}
-                              className="text-[10px] text-[#8B5A44] hover:underline flex items-center gap-0.5 font-semibold cursor-pointer"
-                            >
-                              <RefreshCw className="w-2.5 h-2.5" />
-                              {lang === "en" ? "Re-convert" : "重新转换"}
-                            </button>
-                          </div>
-                        )}
                       </div>
 
                       {/* Chapters Area */}
@@ -3973,7 +3935,7 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                               {books.map((book) => (
                                 <tr key={book.id} className="hover:bg-stone-50/50 transition-colors">
                                   <td className="p-3 pl-4">
-                                    <img src={book.cover} referrerPolicy="no-referrer" alt="book cover" className="w-8 h-10 object-cover shadow-sm bg-stone-100" />
+                                    <img src={book.cover || book.coverImageUrl || undefined} referrerPolicy="no-referrer" alt="book cover" className="w-8 h-10 object-cover shadow-sm bg-stone-100" />
                                   </td>
                                   <td className="p-3">
                                     <span className="text-[9px] bg-stone-100 text-stone-500 px-1 py-0.2 rounded-sm font-mono block w-max mb-1 uppercase">{book.id}</span>

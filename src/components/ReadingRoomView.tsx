@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import HTMLFlipBook from "react-pageflip";
 const FlipBook = HTMLFlipBook as any;
-import { ArrowLeft, BookOpen, ChevronLeft, ChevronRight, Type, Sparkles, Sliders, Lock, RefreshCw } from "lucide-react";
+import { ArrowLeft, BookOpen, ChevronLeft, ChevronRight, Type, Sparkles, Sliders, Lock, RefreshCw, ExternalLink, Maximize2, Minimize2 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { productBooks } from "../data";
 
@@ -183,12 +183,12 @@ const renderChapterContent = (markdown: string, fontSizeClass: string) => {
   );
 };
 
-const BookCoverMock = ({ book, size = "sm", locked = false, lang }: { book: any, size?: "sm" | "lg", locked?: boolean, lang: "en" | "zh" }) => {
-  const dims = size === "lg" ? "w-14 h-18 p-3" : "w-8 h-10 p-1.5";
-  const iconSize = size === "lg" ? "w-4 h-4 mb-1" : "w-3 h-3 mb-0.5";
-  const titleText = size === "lg" ? "text-[6px]" : "text-[4px]";
-  const brandText = size === "lg" ? "text-[5px]" : "hidden";
-  const volText = size === "lg" ? "text-[5px]" : "hidden";
+const BookCoverMock = ({ book, size = "sm", locked = false, lang }: { book: any, size?: "sm" | "md" | "lg", locked?: boolean, lang: "en" | "zh" }) => {
+  const dims = size === "lg" ? "w-14 h-18 p-3" : size === "md" ? "w-11 h-14 p-2" : "w-8 h-10 p-1.5";
+  const iconSize = size === "lg" || size === "md" ? "w-4 h-4 mb-1" : "w-3 h-3 mb-0.5";
+  const titleText = size === "lg" || size === "md" ? "text-[6px]" : "text-[4px]";
+  const brandText = size === "lg" || size === "md" ? "text-[5px]" : "hidden";
+  const volText = size === "lg" || size === "md" ? "text-[5px]" : "hidden";
   
   return (
     <div className={`${dims} ${book.coverColor} border ${book.borderColor} rounded-sm shadow-md flex flex-col justify-between relative transform -rotate-1 shrink-0`}>
@@ -328,6 +328,7 @@ export default function ReadingRoomView({
   const [isMobile, setIsMobile] = useState<boolean>(false);
   const [dbChapters, setDbChapters] = useState<BookChapter[] | null>(null);
   const [isLoadingChapters, setIsLoadingChapters] = useState<boolean>(false);
+  const [isTheaterMode, setIsTheaterMode] = useState<boolean>(false);
 
   useEffect(() => {
     setDbChapters(null);
@@ -370,6 +371,28 @@ export default function ReadingRoomView({
   }, []);
 
   const currentBook = activeProductBooks.find((b) => b.id === activeBookId) || activeProductBooks[0];
+
+  const html5FlipbookUrl = useMemo(() => {
+    if (!currentBook) return "";
+    let raw = (currentBook.html5FlipbookUrl || currentBook.flipbookUrl || "").trim();
+    if (!raw && currentBook.epubSourceUrl && typeof currentBook.epubSourceUrl === "string") {
+      raw = currentBook.epubSourceUrl.trim();
+    }
+    if (typeof raw === "string" && raw.startsWith("http")) {
+      let finalUrl = raw;
+      const lower = finalUrl.toLowerCase();
+      if (lower.endsWith(".epub")) {
+        finalUrl = finalUrl.substring(0, finalUrl.length - 5) + ".html";
+      } else if (lower.endsWith(".pdf")) {
+        return "";
+      }
+      if (finalUrl.startsWith("http://")) {
+        finalUrl = finalUrl.replace("http://", "https://");
+      }
+      return finalUrl;
+    }
+    return "";
+  }, [currentBook]);
   
   // Resolve raw chapter list from Supabase, embedded chapters, local content, or single content string
   const rawBookChapters = (() => {
@@ -533,70 +556,183 @@ export default function ReadingRoomView({
 
       <div className="max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-8 items-start flex-1" id="reading-room-layout">
         
-        {/* Left Col: Desktop Book Selection Shelf */}
-        <div className="lg:col-span-3 flex flex-col gap-4 border border-[#D8D2C6] bg-[#E8DDCF]/20 p-5 rounded-sm" id="book-selector-sidebar">
-          <span className="font-display text-[8px] font-bold uppercase tracking-[0.2em] text-[#8B5A44]">
-            {lang === "en" ? "CHOOSE BOOK VOLUME" : "精选智识藏书卷"}
-          </span>
-          <div className="space-y-3">
-            {activeProductBooks.map((book) => {
-              const isActive = book.id === activeBookId;
-              const bookPriceVal = Number(book?.price || 0);
-              const isBookUnlocked = unlockedBookIds.includes(book.id) || bookPriceVal === 0;
-              return (
-                <button
-                  key={book.id}
-                  onClick={() => handleBookChange(book.id)}
-                  className={`w-full text-left p-4 rounded-sm border transition-all duration-300 flex items-start gap-3 group relative overflow-hidden ${
-                    isActive
-                      ? "bg-[#1A2F24] border-[#1A2F24] text-[#FAF8F5] shadow"
-                      : "bg-[#FAF8F5] border-[#D8D2C6]/50 text-[#1C1C1C] hover:border-[#8B5A44]/60 hover:bg-[#E8DDCF]/10"
-                  } ${!isBookUnlocked && !isActive ? "opacity-75" : ""}`}
-                  id={`shelf-book-${book.id}`}
-                >
-                  <BookCoverMock book={book} size="sm" locked={!isBookUnlocked} lang={lang} />
-                  <div className="flex-1 min-w-0 pt-0.5">
-                    <h3 className="font-serif text-[11px] leading-[1.8] font-semibold leading-snug truncate">
-                      {typeof book?.title === "object" && book?.title !== null ? (book.title[lang] || book.title.en || book.title.zh) : (book?.title || "")}
-                    </h3>
-                    <p className={`font-serif italic text-[8px] mt-1 truncate ${isActive ? "text-[#FAF8F5]/70" : "text-[#1C1C1C]/50"}`}>
-                      {isBookUnlocked 
-                        ? (typeof book?.tagline === "object" && book?.tagline !== null ? (book.tagline[lang] || book.tagline.en) : (book?.tagline || (lang === "en" ? "Free Public Access" : "免费公开查阅")))
-                        : (lang === "en" ? `Premium Volume • $${bookPriceVal.toFixed(2)}` : `高阶内容 • $${bookPriceVal.toFixed(2)}`)}
-                    </p>
-                  </div>
-                  {/* Subtle wood shelf shadow decoration inside the active button */}
-                  {isActive && (
-                    <div className="absolute right-0 bottom-0 top-0 w-1.5 bg-[#B69A6B]" />
-                  )}
-                </button>
-              );
-            })}
+        {/* Top Bar for Volume Selection when HTML5 Flipbook is Active */}
+        {html5FlipbookUrl && (
+          <div className="lg:col-span-12 bg-[#E8DDCF]/30 border border-[#D8D2C6] p-3 rounded-sm flex flex-col sm:flex-row items-center justify-between gap-3" id="horizontal-book-selector">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="font-display text-[9px] font-bold uppercase tracking-[0.2em] text-[#8B5A44]">
+                {lang === "en" ? "CHOOSE BOOK VOLUME:" : "选阅智识藏书卷："}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap max-w-full overflow-x-auto py-1">
+              {activeProductBooks.map((book) => {
+                const isActive = book.id === activeBookId;
+                const bookPriceVal = Number(book?.price || 0);
+                const isBookUnlocked = unlockedBookIds.includes(book.id) || bookPriceVal === 0;
+                return (
+                  <button
+                    key={book.id}
+                    onClick={() => handleBookChange(book.id)}
+                    className={`px-3.5 py-1.5 rounded-sm border text-xs font-serif transition-all flex items-center gap-2 cursor-pointer ${
+                      isActive
+                        ? "bg-[#1A2F24] border-[#1A2F24] text-[#FAF8F5] font-semibold shadow"
+                        : "bg-[#FAF8F5] border-[#D8D2C6] text-[#1C1C1C] hover:border-[#8B5A44]/60 hover:bg-[#E8DDCF]/10"
+                    }`}
+                  >
+                    <span>{typeof book?.title === "object" && book?.title !== null ? (book.title[lang] || book.title.en || book.title.zh) : (book?.title || "")}</span>
+                    {!isBookUnlocked && <Lock className="w-3 h-3 text-[#B69A6B]" />}
+                  </button>
+                );
+              })}
+            </div>
           </div>
+        )}
 
-          <div className="mt-3 pt-3 border-t border-[#D8D2C6] text-center" id="reading-room-mission">
-            <p className="font-serif text-[11px] text-[#1C1C1C]/50 italic">
-              {lang === "en" ? "Structured Digital Publishing. Turning knowledge into action." : "系统化数字出版：消解冗余信息，回归纯净智识。"}
-            </p>
+        {/* Left Col: Desktop Book Selection Shelf (Only for Native Reader Mode) */}
+        {!html5FlipbookUrl && (
+          <div className="lg:col-span-3 flex flex-col gap-4 border border-[#D8D2C6] bg-[#E8DDCF]/20 p-5 rounded-sm" id="book-selector-sidebar">
+            <span className="font-display text-[8px] font-bold uppercase tracking-[0.2em] text-[#8B5A44]">
+              {lang === "en" ? "CHOOSE BOOK VOLUME" : "精选智识藏书卷"}
+            </span>
+            <div className="space-y-3">
+              {activeProductBooks.map((book) => {
+                const isActive = book.id === activeBookId;
+                const bookPriceVal = Number(book?.price || 0);
+                const isBookUnlocked = unlockedBookIds.includes(book.id) || bookPriceVal === 0;
+                return (
+                  <button
+                    key={book.id}
+                    onClick={() => handleBookChange(book.id)}
+                    className={`w-full text-left p-4 rounded-sm border transition-all duration-300 flex items-start gap-3 group relative overflow-hidden ${
+                      isActive
+                        ? "bg-[#1A2F24] border-[#1A2F24] text-[#FAF8F5] shadow"
+                        : "bg-[#FAF8F5] border-[#D8D2C6]/50 text-[#1C1C1C] hover:border-[#8B5A44]/60 hover:bg-[#E8DDCF]/10"
+                    } ${!isBookUnlocked && !isActive ? "opacity-75" : ""}`}
+                    id={`shelf-book-${book.id}`}
+                  >
+                    <BookCoverMock book={book} size="sm" locked={!isBookUnlocked} lang={lang} />
+                    <div className="flex-1 min-w-0 pt-0.5">
+                      <h3 className="font-serif text-[11px] leading-[1.8] font-semibold leading-snug truncate">
+                        {typeof book?.title === "object" && book?.title !== null ? (book.title[lang] || book.title.en || book.title.zh) : (book?.title || "")}
+                      </h3>
+                      <p className={`font-serif italic text-[8px] mt-1 truncate ${isActive ? "text-[#FAF8F5]/70" : "text-[#1C1C1C]/50"}`}>
+                        {isBookUnlocked 
+                          ? (typeof book?.tagline === "object" && book?.tagline !== null ? (book.tagline[lang] || book.tagline.en) : (book?.tagline || (lang === "en" ? "Free Public Access" : "免费公开查阅")))
+                          : (lang === "en" ? `Premium Volume • $${bookPriceVal.toFixed(2)}` : `高阶内容 • $${bookPriceVal.toFixed(2)}`)}
+                      </p>
+                    </div>
+                    {/* Subtle wood shelf shadow decoration inside the active button */}
+                    {isActive && (
+                      <div className="absolute right-0 bottom-0 top-0 w-1.5 bg-[#B69A6B]" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-3 pt-3 border-t border-[#D8D2C6] text-center" id="reading-room-mission">
+              <p className="font-serif text-[11px] text-[#1C1C1C]/50 italic">
+                {lang === "en" ? "Structured Digital Publishing. Turning knowledge into action." : "系统化数字出版：消解冗余信息，回归纯净智识。"}
+              </p>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Right Col: Immersive Double-Page Paper Book Reader */}
-        <div className="lg:col-span-9 flex flex-col justify-between h-full" id="immersive-reader-container">
+        <div className={`${html5FlipbookUrl ? "lg:col-span-12" : "lg:col-span-9"} flex flex-col justify-between h-full`} id="immersive-reader-container">
           
           {/* Main Book-Layout Canvas Frame */}
-          <div className="relative w-full aspect-[3/4] md:aspect-[10/7] bg-gradient-to-br from-[#1C1C1C]/10 to-[#1C1C1C]/25 border border-[#D8D2C6] p-4 md:p-6 lg:p-8 rounded-md flex flex-col justify-center select-none shadow-2xl overflow-hidden" id="book-canvas-frame">
+          <div className={`relative w-full ${html5FlipbookUrl ? "w-full aspect-[16/9.2] min-h-[500px] sm:min-h-[580px] md:min-h-[660px] lg:min-h-[720px] p-0" : "aspect-[3/4] md:aspect-[10/7] p-4 md:p-6 lg:p-8"} bg-gradient-to-br from-[#1C1C1C]/10 to-[#1C1C1C]/25 border border-[#D8D2C6] rounded-md flex flex-col justify-center select-none shadow-2xl overflow-hidden`} id="book-canvas-frame">
             
-            {/* Soft shadow depth under the overall book spine */}
-            {!isMobile && (
+            {/* Soft shadow depth under the overall book spine (Native Reader only) */}
+            {!html5FlipbookUrl && !isMobile && (
               <div className="absolute top-0 bottom-0 left-[50%] -translate-x-[50%] w-10 bg-gradient-to-r from-black/15 via-black/40 to-black/15 blur-sm z-30 pointer-events-none"></div>
             )}
 
-            {/* Simulated wooden table grain border */}
-            <div className="absolute inset-0 border-[8px] border-[#D8D2C6]/15 pointer-events-none rounded-md z-40"></div>
+            {/* Simulated wooden table grain border (Native Reader only) */}
+            {!html5FlipbookUrl && (
+              <div className="absolute inset-0 border-[8px] border-[#D8D2C6]/15 pointer-events-none rounded-md z-40"></div>
+            )}
 
-            {/* Inside book: Two Pages Paper Block */}
-            <div className={"w-full h-full rounded-sm shadow-xl relative " + themeClasses[readingTheme]} id="dual-page-paper-block">
+            {/* Inside book: HTML5 Flipbook Viewer OR Two Pages Paper Block */}
+            {html5FlipbookUrl ? (
+              <div className="w-full h-full flex flex-col bg-[#FAF8F5] rounded-sm overflow-hidden shadow-2xl relative z-20 border border-[#D8D2C6]" id="html5-flipbook-container">
+                {/* Header bar */}
+                <div className="bg-[#1A2F24] text-[#FAF8F5] px-4 py-2.5 flex items-center justify-between text-xs border-b border-[#B69A6B]/30 shrink-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                    <span className="font-display text-[9px] uppercase font-bold tracking-widest text-[#B69A6B] shrink-0">
+                      {lang === "en" ? "HTML5 Interactive Reader" : "HTML5 沉浸式翻页引擎"}
+                    </span>
+                    <span className="text-[#FAF8F5]/60 text-[11px] truncate hidden sm:inline">
+                      • {typeof currentBook?.title === "object" && currentBook?.title !== null ? (currentBook.title[lang] || currentBook.title.en) : (currentBook?.title || "")}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {isUnlocked && (
+                      <button
+                        onClick={() => setIsTheaterMode(true)}
+                        className="text-[10px] bg-[#B69A6B] hover:bg-[#8B5A44] text-[#1A2F24] font-semibold px-2.5 py-1 rounded transition-colors flex items-center gap-1 cursor-pointer"
+                        title={lang === "en" ? "Expand for full 2-page 3D flip experience" : "开启全屏剧场模式以获得最佳 3D 双页翻折效果"}
+                      >
+                        <Maximize2 className="w-3 h-3" />
+                        <span>{lang === "en" ? "Theater Mode" : "剧场全屏"}</span>
+                      </button>
+                    )}
+                    <a
+                      href={html5FlipbookUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[10px] font-mono hover:text-[#B69A6B] bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded transition-colors flex items-center gap-1 cursor-pointer text-[#FAF8F5]"
+                      title="Open full window"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      <span className="hidden sm:inline">{lang === "en" ? "Full Window" : "全屏翻阅"}</span>
+                    </a>
+                  </div>
+                </div>
+
+                {/* Iframe stage or locked paywall overlay */}
+                {isUnlocked ? (
+                  <div className="flex-1 w-full h-full relative min-h-[560px] sm:min-h-[620px] lg:min-h-[680px]">
+                    <iframe
+                      src={html5FlipbookUrl || undefined}
+                      title={typeof currentBook?.title === "object" && currentBook?.title !== null ? (currentBook.title[lang] || currentBook.title.en) : "Flipbook Reader"}
+                      className="w-full h-full border-0 bg-white"
+                      allow="fullscreen; autoplay; clipboard-write; encrypted-media"
+                      referrerPolicy="no-referrer-when-downgrade"
+                      allowFullScreen
+                    />
+                  </div>
+                ) : (
+                  <div className="flex-1 w-full h-full relative min-h-[450px] flex flex-col items-center justify-center p-6 text-center bg-[#1A2F24]/95 text-[#F4F1EB]">
+                    <div className="max-w-md space-y-4">
+                      <BookCoverMock book={currentBook} size="md" locked={true} lang={lang} />
+                      <div className="w-10 h-10 rounded-full bg-[#B69A6B]/20 text-[#B69A6B] flex items-center justify-center mx-auto border border-[#B69A6B]/40 mt-3">
+                        <Lock className="w-5 h-5" />
+                      </div>
+                      <h3 className="font-serif text-lg font-medium text-[#FAF8F5]">
+                        {lang === "en" ? "Premium Digital Volume" : "高阶智识选卷已锁定"}
+                      </h3>
+                      <p className="text-xs text-[#FAF8F5]/80 font-serif leading-relaxed">
+                        {lang === "en" 
+                          ? "Unlock full reading access to view the HTML5 Flipbook edition in high resolution with interactive page turns." 
+                          : "解锁高阶智识选卷，即可在在线阅读室中无限制查阅 HTML5 3D 沉浸式翻页书全卷。"}
+                      </p>
+                      <button
+                        onClick={() => onUnlockBook && onUnlockBook(currentBook.id)}
+                        className="mt-2 bg-[#B69A6B] hover:bg-[#8B5A44] text-[#1A2F24] font-semibold px-6 py-2.5 rounded-xs text-xs tracking-wider uppercase transition-colors shadow-md cursor-pointer flex items-center justify-center gap-2 mx-auto"
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        <span>{lang === "en" ? `Unlock Volume • ${Number(currentBook?.price || 19).toFixed(2)}` : `解锁高阶选卷 • ${Number(currentBook?.price || 19).toFixed(2)}`}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className={"w-full h-full rounded-sm shadow-xl relative " + themeClasses[readingTheme]} id="dual-page-paper-block">
               {/* Paper grain/felt texture overlays */}
               <div className="absolute inset-0 bg-repeat opacity-[0.04] mix-blend-multiply pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/felt.png')] z-50"></div>
 
@@ -771,55 +907,146 @@ export default function ReadingRoomView({
               )}
               </FlipBook>
             </div>
+            )}
           </div>
 
           {/* Book Navigation controls underneath */}
-          <div className="flex items-center justify-between mt-6 px-2" id="book-nav-controls">
-            <button
-              onClick={handlePrevPage}
-              disabled={!isUnlocked || currentPageIndex === 0}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-sm border font-display text-[11px] leading-[1.8] font-bold uppercase tracking-wider transition-all ${
-                (!isUnlocked || currentPageIndex === 0)
-                  ? "border-[#D8D2C6]/40 text-[#1C1C1C]/25 cursor-not-allowed "
-                  : "border-[#D8D2C6] bg-white text-[#1C1C1C]/70 hover:bg-[#E8DDCF]/30 hover:text-[#8B5A44] hover:shadow"
-              }`}
-              id="btn-prev-page"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              {lang === "en" ? "Previous Page" : "上一页"}
-            </button>
-
-            {/* Reading progress percentage indicator */}
-            <div className="flex flex-col items-center">
-              <span className="font-mono text-[11px] leading-[1.8] text-[#1C1C1C]/50">
-                {currentPageIndex + 1} / {maxPages}
-              </span>
-              <div className="w-32 h-1 bg-[#D8D2C6]/50 rounded-full mt-2 overflow-hidden">
-                <div
-                  className="h-full bg-[#8B5A44] transition-all duration-300"
-                  style={{ width: `${((currentPageIndex + 1) / maxPages) * 100}%` }}
-                />
+          {html5FlipbookUrl ? (
+            <div className="mt-4 p-3 bg-[#E8DDCF]/20 border border-[#D8D2C6]/60 rounded-sm space-y-2" id="book-nav-controls">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="font-mono text-xs text-[#1C1C1C]/80 font-medium">
+                    {lang === "en" ? "HTML5 Interactive Reader Active" : "已加载 HTML5 互动翻页引擎"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <a
+                    href={html5FlipbookUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[#8B5A44] hover:text-[#1A2F24] flex items-center gap-1 font-semibold text-xs transition-colors cursor-pointer bg-white/60 px-2.5 py-1 rounded border border-[#D8D2C6]/50"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>{lang === "en" ? "Test URL in New Tab" : "在新标签页测试该链接"}</span>
+                  </a>
+                </div>
               </div>
+              <p className="text-[11px] text-stone-600 font-sans leading-relaxed">
+                {lang === "en" ? (
+                  <>
+                    💡 <strong>If the reader shows a blank white page:</strong> Ensure your Netlify Drop URL points directly to your <code className="bg-white px-1 py-0.5 rounded text-[10px] text-emerald-800 border">index.html</code> (e.g. <span className="font-mono text-[10px] text-stone-800">https://site.netlify.app/index.html</span> or <span className="font-mono text-[10px] text-stone-800">https://site.netlify.app/folder-name/index.html</span>).
+                  </>
+                ) : (
+                  <>
+                    💡 <strong>如果出现空白页面：</strong> 请确保输入的 Netlify 链接包含完整的 <code className="bg-white px-1 py-0.5 rounded text-[10px] text-emerald-800 border">index.html</code> 文件路径（例如：<span className="font-mono text-[10px] text-stone-800">https://site.netlify.app/index.html</span> 或 <span className="font-mono text-[10px] text-stone-800">https://site.netlify.app/子文件夹名/index.html</span>）。
+                  </>
+                )}
+              </p>
             </div>
+          ) : (
+            <div className="flex items-center justify-between mt-6 px-2" id="book-nav-controls">
+              <button
+                onClick={handlePrevPage}
+                disabled={!isUnlocked || currentPageIndex === 0}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-sm border font-display text-[11px] leading-[1.8] font-bold uppercase tracking-wider transition-all ${
+                  (!isUnlocked || currentPageIndex === 0)
+                    ? "border-[#D8D2C6]/40 text-[#1C1C1C]/25 cursor-not-allowed "
+                    : "border-[#D8D2C6] bg-white text-[#1C1C1C]/70 hover:bg-[#E8DDCF]/30 hover:text-[#8B5A44] hover:shadow"
+                }`}
+                id="btn-prev-page"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                {lang === "en" ? "Previous Page" : "上一页"}
+              </button>
 
-            <button
-              onClick={handleNextPage}
-              disabled={!isUnlocked || currentPageIndex === maxPages - 1}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-sm border font-display text-[11px] leading-[1.8] font-bold uppercase tracking-wider transition-all ${
-                (!isUnlocked || currentPageIndex === maxPages - 1)
-                  ? "border-[#D8D2C6]/40 text-[#1C1C1C]/25 cursor-not-allowed "
-                  : "border-[#D8D2C6] bg-white text-[#1C1C1C]/70 hover:bg-[#E8DDCF]/30 hover:text-[#8B5A44] hover:shadow"
-              }`}
-              id="btn-next-page"
-            >
-              {lang === "en" ? "Next Page" : "下一页"}
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
+              {/* Reading progress percentage indicator */}
+              <div className="flex flex-col items-center">
+                <span className="font-mono text-[11px] leading-[1.8] text-[#1C1C1C]/50">
+                  {currentPageIndex + 1} / {maxPages}
+                </span>
+                <div className="w-32 h-1 bg-[#D8D2C6]/50 rounded-full mt-2 overflow-hidden">
+                  <div
+                    className="h-full bg-[#8B5A44] transition-all duration-300"
+                    style={{ width: `${((currentPageIndex + 1) / maxPages) * 100}%` }}
+                  />
+                </div>
+              </div>
+
+              <button
+                onClick={handleNextPage}
+                disabled={!isUnlocked || currentPageIndex === maxPages - 1}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-sm border font-display text-[11px] leading-[1.8] font-bold uppercase tracking-wider transition-all ${
+                  (!isUnlocked || currentPageIndex === maxPages - 1)
+                    ? "border-[#D8D2C6]/40 text-[#1C1C1C]/25 cursor-not-allowed "
+                    : "border-[#D8D2C6] bg-white text-[#1C1C1C]/70 hover:bg-[#E8DDCF]/30 hover:text-[#8B5A44] hover:shadow"
+                }`}
+                id="btn-next-page"
+              >
+                {lang === "en" ? "Next Page" : "下一页"}
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
 
         </div>
 
       </div>
+
+      {/* Fullscreen Theater Mode Modal for HTML5 Flipbook */}
+      <AnimatePresence>
+        {isTheaterMode && html5FlipbookUrl && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-[#111B15] flex flex-col w-screen h-screen p-0 m-0 overflow-hidden"
+          >
+            {/* Top Bar */}
+            <div className="bg-[#1A2F24] text-[#F4F1EB] px-4 py-2 flex items-center justify-between border-b border-[#B69A6B]/30 shrink-0 h-11">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                <h3 className="font-serif text-xs sm:text-sm font-medium text-[#FAF8F5] truncate">
+                  {typeof currentBook?.title === "object" && currentBook?.title !== null ? (currentBook.title[lang] || currentBook.title.en) : (currentBook?.title || "")}
+                </h3>
+                <span className="text-[10px] font-mono text-[#B69A6B] bg-[#B69A6B]/15 border border-[#B69A6B]/30 px-2 py-0.5 rounded hidden sm:inline">
+                  {lang === "en" ? "Interactive 3D Double-Page Spread (95 Pages)" : "3D 双页沉浸式翻页 (95页)"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={html5FlipbookUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-[#FAF8F5]/80 hover:text-[#B69A6B] bg-white/10 hover:bg-white/20 px-3 py-1 rounded transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{lang === "en" ? "Full Window" : "全屏独立页"}</span>
+                </a>
+                <button
+                  onClick={() => setIsTheaterMode(false)}
+                  className="bg-[#B69A6B] hover:bg-[#8B5A44] text-[#1A2F24] hover:text-white font-semibold text-xs px-3.5 py-1 rounded transition-colors flex items-center gap-1.5 cursor-pointer shadow"
+                >
+                  <Minimize2 className="w-3.5 h-3.5" />
+                  <span>{lang === "en" ? "Exit Theater" : "退出剧场"}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Stage */}
+            <div className="flex-1 w-full h-[calc(100vh-44px)] bg-white overflow-hidden relative">
+              <iframe
+                src={html5FlipbookUrl || undefined}
+                title="Theater Flipbook Reader"
+                className="w-full h-full border-0 bg-white"
+                allow="fullscreen; autoplay; clipboard-write; encrypted-media"
+                referrerPolicy="no-referrer-when-downgrade"
+                allowFullScreen
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     </div>
   );

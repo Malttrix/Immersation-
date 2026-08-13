@@ -340,7 +340,7 @@ export function HeroImage({
       className="relative overflow-hidden rounded-sm border border-[#D8D2C6]/60 shadow-sm mb-10 group"
     >
       <motion.img
-        src={src}
+        src={src || undefined}
         alt={alt}
         referrerPolicy="no-referrer"
         style={{ y: shouldReduceMotion ? 0 : y, scale: 1.08 }}
@@ -568,7 +568,7 @@ export function ArticlePage({
         return (
           <figure className="my-8 space-y-2 text-center article-image-frame">
             <img
-              src={text}
+              src={text || undefined}
               alt="Article Image"
               referrerPolicy="no-referrer"
               className="mx-auto rounded-sm border border-[#D8D2C6]/60 shadow-sm max-h-[400px] w-full max-w-full object-cover loading-lazy article-graded-img"
@@ -588,7 +588,7 @@ export function ArticlePage({
                 <span className="font-display text-[9px] font-bold text-[#8B5A44] uppercase tracking-widest block mb-1">
                   Embedded Media Player
                 </span>
-                <audio src={url} controls className="w-full h-8 accent-[#8B5A44]" />
+                <audio src={url || undefined} controls className="w-full h-8 accent-[#8B5A44]" />
               </div>
             </div>
           );
@@ -684,7 +684,7 @@ export function ArticlePage({
     img: ({ src, alt }: any) => (
       <figure className="my-8 space-y-2 text-center article-image-frame">
         <img
-          src={src}
+          src={src || undefined}
           alt={alt}
           referrerPolicy="no-referrer"
           className="mx-auto rounded-sm border border-[#D8D2C6]/60 shadow-sm max-h-[400px] w-full max-w-full object-cover loading-lazy article-graded-img"
@@ -952,7 +952,7 @@ function SidebarPinterestWidget({
           className="relative block w-full"
         >
           <img
-            src={imageUrl}
+            src={imageUrl || undefined}
             referrerPolicy="no-referrer"
             alt={altText || (lang === "en" ? "Article visual" : "文章配图")}
             className="w-full h-auto object-cover transition-transform duration-500 group-hover:scale-105"
@@ -1016,7 +1016,7 @@ function SidebarAdSlot({ lang, slotId, adUrl }: { lang: "en" | "zh"; slotId: str
         {lang === "en" ? "Advertisement" : "广告"}
       </p>
       <a href={adUrl} target="_blank" rel="noopener noreferrer" className="block w-full">
-        <img src={adUrl} alt="Advertisement" className="w-full h-auto object-cover rounded-sm" loading="lazy" />
+        <img src={adUrl || undefined} alt="Advertisement" className="w-full h-auto object-cover rounded-sm" loading="lazy" />
       </a>
     </div>
   );
@@ -1988,7 +1988,7 @@ export default function ArticlesView({ lang, onBackToHome, onPlayChime, initialA
                       {article.cover && (
                         <div className="w-full h-48 md:h-64 mb-6 overflow-hidden rounded-sm border border-[#D8D2C6]/60">
                           <img 
-                            src={article.cover} 
+                            src={article.cover || undefined} 
                             alt={article.title[lang]} 
                             referrerPolicy="no-referrer"
                             className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 

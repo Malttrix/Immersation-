@@ -149,7 +149,7 @@ const renderMarkdownContent = (contentStr: string) => {
         const src = imgMatch[2];
         return (
           <figure key={index} className="my-6 space-y-2 text-center">
-            <img src={src} alt={alt} referrerPolicy="no-referrer" className="mx-auto rounded-sm border border-[#D8D2C6]/60 shadow-sm max-h-[400px] object-cover" />
+            <img src={src || undefined} alt={alt} referrerPolicy="no-referrer" className="mx-auto rounded-sm border border-[#D8D2C6]/60 shadow-sm max-h-[400px] object-cover" />
             {alt && <figcaption className="font-sans text-[10px] text-stone-400 uppercase tracking-widest">{alt}</figcaption>}
           </figure>
         );
@@ -166,7 +166,7 @@ const renderMarkdownContent = (contentStr: string) => {
             <Music className="w-6 h-6 text-[#8B5A44] shrink-0" />
             <div className="flex-1 min-w-0">
               <span className="font-display text-[9px] font-bold text-[#8B5A44] uppercase tracking-widest block mb-1">Embedded Media Player</span>
-              <audio src={url} controls className="w-full h-8 accent-[#8B5A44]" />
+              <audio src={url || undefined} controls className="w-full h-8 accent-[#8B5A44]" />
             </div>
           </div>
         );
@@ -1134,7 +1134,7 @@ Any weakness in one pillar immediately drains the other two. If your body is bro
                       {issue.cover && (
                         <div className="w-full h-48 md:h-64 mb-6 overflow-hidden rounded-sm border border-[#D8D2C6]/60">
                           <img 
-                            src={issue.cover} 
+                            src={issue.cover || undefined} 
                             alt={issue.title[lang]} 
                             referrerPolicy="no-referrer"
                             className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 cursor-pointer" 
@@ -1403,7 +1403,7 @@ Any weakness in one pillar immediately drains the other two. If your body is bro
                 {activeIssue.cover && (
                   <div className="mb-8 rounded-sm overflow-hidden border border-[#D8D2C6]/60 shadow-sm">
                     <img 
-                      src={activeIssue.cover} 
+                      src={activeIssue.cover || undefined} 
                       alt={activeIssue.title[lang]}
                       referrerPolicy="no-referrer"
                       className="w-full h-auto object-cover max-h-[300px]"
