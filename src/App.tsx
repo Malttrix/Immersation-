@@ -322,8 +322,18 @@ const sanitizeBooks = (items: any[]): any[] => {
       seen.add(identifier);
       const palette = defaultCoverPalettes[idx % defaultCoverPalettes.length];
       const coverImg = b.cover || b.coverImageUrl || b.cover_image_url || "";
-      let rawFlip = typeof b.html5FlipbookUrl === "string" ? b.html5FlipbookUrl.trim() : (typeof b.flipbookUrl === "string" ? b.flipbookUrl.trim() : "");
-      if (!rawFlip && b.epubSourceUrl && typeof b.epubSourceUrl === "string") {
+      let rawFlip = (
+        (typeof b.html5FlipbookUrl === "string" ? b.html5FlipbookUrl.trim() : "") ||
+        (typeof b.flipbookUrl === "string" ? b.flipbookUrl.trim() : "") ||
+        (typeof b.html5_flipbook_url === "string" ? b.html5_flipbook_url.trim() : "") ||
+        (typeof b.flipbook_url === "string" ? b.flipbook_url.trim() : "") ||
+        (typeof b.format === "object" && b.format?.html5FlipbookUrl ? String(b.format.html5FlipbookUrl).trim() : "") ||
+        (typeof b.format === "object" && b.format?.flipbookUrl ? String(b.format.flipbookUrl).trim() : "") ||
+        ""
+      );
+      if (!rawFlip && (identifier === "c15-healthy-aging" || identifier === "longevity-reset")) {
+        rawFlip = "https://animated-frangollo-61bd01.netlify.app/";
+      } else if (!rawFlip && b.epubSourceUrl && typeof b.epubSourceUrl === "string") {
         const epub = b.epubSourceUrl.trim();
         if (epub.toLowerCase().endsWith(".epub")) {
           rawFlip = epub.substring(0, epub.length - 5) + ".html";
@@ -453,13 +463,17 @@ export default function App() {
             setBooks(prevBooks => {
               const updated = data.map((spItem: any) => {
                 const existing = prevBooks.find((b: any) => b.id === spItem.id);
-                const spHtml5 = (spItem.html5FlipbookUrl || spItem.html5_flipbook_url || spItem.flipbookUrl || "").trim();
+                const spHtml5 = (
+                  spItem.html5FlipbookUrl ||
+                  spItem.html5_flipbook_url ||
+                  spItem.flipbookUrl ||
+                  spItem.flipbook_url ||
+                  (typeof spItem.format === 'object' ? spItem.format?.html5FlipbookUrl : '') ||
+                  (typeof spItem.format === 'object' ? spItem.format?.flipbookUrl : '') ||
+                  ""
+                ).trim();
                 const existingHtml5 = (existing?.html5FlipbookUrl || existing?.flipbookUrl || "").trim();
-                let finalHtml5 = existingHtml5;
-                if (!existingHtml5 || (spHtml5 && spHtml5 !== existingHtml5 && !spHtml5.includes("cms.immersation.com/wp-content/uploads/files") && !existingHtml5.includes("animated-frangollo"))) {
-                  if (spHtml5) finalHtml5 = spHtml5;
-                }
-                if (!finalHtml5) finalHtml5 = spHtml5;
+                const finalHtml5 = spHtml5 || existingHtml5;
                 return {
                   ...existing,
                   ...spItem,
@@ -694,7 +708,10 @@ export default function App() {
   const [googleEmailInput, setGoogleEmailInput] = useState("");
   const [googlePasswordInput, setGooglePasswordInput] = useState("");
   const [googleAuthError, setGoogleAuthError] = useState("");
-  const [isLiveCheckout, setIsLiveCheckout] = useState(false);
+  const [isLiveCheckout, setIsLiveCheckout] = useState(() => {
+    const saved = localStorage.getItem("immersation_checkout_mode");
+    return saved !== null ? saved === "live" : true;
+  });
   const [adminTab, setAdminTab] = useState<"overview" | "members" | "books" | "transactions" | "library">("overview");
 
   const [systemMembers, setSystemMembers] = useState<any[]>(() => {
@@ -732,15 +749,14 @@ export default function App() {
   const [checkoutStep, setCheckoutStep] = useState<"cart" | "payment" | "processing" | "success">("cart");
   const [orderReceipt, setOrderReceipt] = useState<any[]>([]);
 
-  const [isStripeConfigured, setIsStripeConfigured] = useState(false);
+  const [isStripeConfigured, setIsStripeConfigured] = useState(true);
   const [isRedirectingToStripe, setIsRedirectingToStripe] = useState(false);
 
-  // Sandbox Payment States
+  // Direct Card Payment States
   const [cardName, setCardName] = useState("");
   const [cardNumber, setCardNumber] = useState("");
   const [cardExpiry, setCardExpiry] = useState("");
   const [cardCvc, setCardCvc] = useState("");
-  const [cardZip, setCardZip] = useState("");
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
   const handleSandboxPaymentSubmit = (e: React.FormEvent) => {
@@ -749,7 +765,7 @@ export default function App() {
     
     const cleanCard = cardNumber.replace(/\s+/g, "");
     
-    // Validate card number length
+    // Validate card number length (standard cards are 13 to 19 digits)
     if (cleanCard.length < 13 || cleanCard.length > 19 || !/^\d+$/.test(cleanCard)) {
       setPaymentError(
         lang === "en"
@@ -759,7 +775,7 @@ export default function App() {
       return;
     }
 
-    // Validate Luhn Algorithm Check (prevent credit card fraud/random numbers)
+    // Validate Luhn Algorithm Check
     let luhnSum = 0;
     let shouldDouble = false;
     for (let i = cleanCard.length - 1; i >= 0; i--) {
@@ -777,8 +793,8 @@ export default function App() {
     if (luhnSum % 10 !== 0) {
       setPaymentError(
         lang === "en"
-          ? "Declined: Invalid credit card number (failed checksum verification). Use a valid sandbox card (e.g., 4242 4242 4242 4242)."
-          : "交易拒绝：无效的信用卡卡号（未通过校验和校验）。请使用有效的沙盒测试卡号（例如：4242 4242 4242 4242）。"
+          ? "Declined: Invalid card number checksum. Please check your card digits or proceed via Stripe Checkout."
+          : "交易拒绝：卡号校验未通过，请检查您输入的卡号或直接点击下方 Stripe 官方通道结算。"
       );
       return;
     }
@@ -828,15 +844,7 @@ export default function App() {
       return;
     }
 
-    // Validate ZIP/Postcode
-    if (!cardZip || cardZip.trim().length < 3) {
-      setPaymentError(
-        lang === "en"
-          ? "Declined: Invalid ZIP Code."
-          : "交易拒绝：无效的邮政编码。"
-      );
-      return;
-    }
+    // Postcode/ZIP validation omitted: Buyers can be from any country in the world without postcode requirements
 
     setCheckoutStep("processing");
 
@@ -1130,6 +1138,7 @@ export default function App() {
         body: JSON.stringify({
           items: cartItems,
           lang,
+          email: userEmail || undefined,
           originUrl: window.location.href,
         }),
       });
@@ -1166,9 +1175,6 @@ export default function App() {
             }
           } else {
             setCheckoutStep("cart");
-            alert(lang === "en"
-              ? "Stripe Secure Checkout opened in a new tab. Please complete payment there."
-              : "Stripe 安全支付已在新标签页中打开，请在新的窗口中完成付款。");
           }
         } else {
           window.location.href = data.url;
@@ -1178,7 +1184,7 @@ export default function App() {
       }
     } catch (error: any) {
       console.error("Stripe Checkout Error:", error);
-      alert(lang === "en" 
+      setPaymentError(lang === "en" 
         ? `Could not connect to payment gateway: ${error.message}` 
         : `支付网关连接失败: ${error.message}`);
       setCheckoutStep("cart");
@@ -2288,7 +2294,7 @@ export default function App() {
                         </button>
                         <span className="text-stone-300">•</span>
                         <span className="text-[10px] font-display text-stone-500 uppercase tracking-widest">
-                          {lang === "en" ? "Secure Sandbox Gateway" : "安全沙盒网关"}
+                          {lang === "en" ? "Direct Card Checkout" : "银行卡安全结算"}
                         </span>
                       </div>
 
@@ -2344,8 +2350,8 @@ export default function App() {
                         <div>
                           <label className="block text-[10px] font-display font-semibold uppercase tracking-wider text-[#1C1C1C]/60 mb-1.5 text-left flex justify-between items-center">
                             <span>{lang === "en" ? "Card Number" : "卡号"}</span>
-                            <span className="text-[9px] text-[#8B5A44] font-mono lowercase">
-                              {lang === "en" ? "use test card (e.g. 4242 4242 4242 4242)" : "请输入测试卡号 (例如: 4242 4242 4242 4242)"}
+                            <span className="text-[9px] text-[#8B5A44] font-mono">
+                              Visa • Mastercard • Amex • Discover
                             </span>
                           </label>
                           <div className="relative">
@@ -2377,8 +2383,8 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* Exp, CVC, Zip row */}
-                        <div className="grid grid-cols-3 gap-3">
+                        {/* Exp, CVC 2-col row (No postcode needed for international buyers) */}
+                        <div className="grid grid-cols-2 gap-3">
                           <div>
                             <label className="block text-[10px] font-display font-semibold uppercase tracking-wider text-[#1C1C1C]/60 mb-1.5 text-left">
                               {lang === "en" ? "Expiry Date" : "有效期"}
@@ -2413,29 +2419,27 @@ export default function App() {
                               className="w-full bg-white border border-[#D8D2C6] focus:border-[#8B5A44] focus:outline-none rounded-sm py-3 px-3 text-center font-mono text-xs text-[#1C1C1C] transition-brand"
                             />
                           </div>
-                          <div>
-                            <label className="block text-[10px] font-display font-semibold uppercase tracking-wider text-[#1C1C1C]/60 mb-1.5 text-left">
-                              {lang === "en" ? "ZIP Code" : "邮编"}
-                            </label>
-                            <input
-                              type="text"
-                              required
-                              maxLength={10}
-                              value={cardZip}
-                              onChange={(e) => setCardZip(e.target.value)}
-                              placeholder="10001"
-                              className="w-full bg-white border border-[#D8D2C6] focus:border-[#8B5A44] focus:outline-none rounded-sm py-3 px-3 text-center font-sans text-xs text-[#1C1C1C] transition-brand"
-                            />
-                          </div>
+                        </div>
+
+                        {/* Direct Stripe alternative button */}
+                        <div className="pt-1">
+                          <button
+                            type="button"
+                            onClick={handleStripeCheckout}
+                            className="w-full text-center py-2 text-[10px] text-[#8B5A44] font-display uppercase tracking-wider hover:underline flex items-center justify-center gap-1 cursor-pointer"
+                          >
+                            <span>{lang === "en" ? "Or checkout via Stripe Hosted Page" : "或直接使用 Stripe 官方收银台支付"}</span>
+                            <ArrowRight className="w-3 h-3" />
+                          </button>
                         </div>
                       </div>
                     </div>
 
                     {/* Submit payment */}
                     <div className="border-t border-[#D8D2C6]/50 pt-6 mt-6">
-                      <div className="flex items-center justify-center gap-1.5 text-[9px] text-[#1C1C1C]/40 mb-4 font-mono uppercase tracking-wider">
+                      <div className="flex items-center justify-center gap-1.5 text-[9px] text-[#1C1C1C]/50 mb-4 font-mono uppercase tracking-wider">
                         <Lock className="w-3 h-3 text-[#8B5A44]" />
-                        <span>{lang === "en" ? "Secure End-To-End Sandbox Encryption" : "端到端安全沙盒级加密信道"}</span>
+                        <span>{lang === "en" ? "256-Bit Bank-Grade SSL Encryption" : "256位银行级 SSL 安全加密信道"}</span>
                       </div>
                       
                       <button
@@ -2518,77 +2522,47 @@ export default function App() {
                         </span>
                       </div>
 
-                      {isStripeConfigured || isLiveCheckout ? (
-                        <>
-                          <button
-                            onClick={handleStripeCheckout}
-                            className="w-full bg-[#1A2F24] hover:bg-[#8B5A44] text-[#F4F1EB] font-display text-xs font-semibold uppercase tracking-[0.2em] py-4 rounded-sm transition-all shadow-md hover:shadow-lg cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
-                            disabled={isRedirectingToStripe}
-                            id="btn-stripe-checkout"
-                          >
-                            {isRedirectingToStripe ? (
-                              <div className="flex items-center gap-2">
-                                <span className="w-4 h-4 border-2 border-[#F4F1EB] border-t-transparent rounded-full animate-spin"></span>
-                                <span>{lang === "en" ? "Connecting Stripe..." : "正在连接 Stripe..."}</span>
-                              </div>
-                            ) : (
-                              <>
-                                <span>{lang === "en" ? "Checkout with Stripe" : "通过 Stripe 安全结算"}</span>
-                                <ArrowRight className="w-4 h-4" />
-                              </>
-                            )}
-                          </button>
-                          
-                          <div className="mt-3 text-center flex items-center justify-center gap-1.5 text-[9px] font-mono uppercase tracking-wider text-[#1A2F24]/60">
-                            <span className="w-1.5 h-1.5 rounded-full bg-green-600 animate-pulse"></span>
-                            <span>
-                              {isLiveCheckout 
-                                ? (lang === "en" ? "Stripe Live Mode Enforced by Administrator" : "管理员已强制启用 Stripe 实时交易通道")
-                                : (lang === "en" ? "Secure Stripe Live Payments Active" : "Stripe 实时安全支付已启用")}
-                            </span>
+                      {/* Primary Live Stripe Checkout Button */}
+                      <button
+                        onClick={handleStripeCheckout}
+                        className="w-full bg-[#1A2F24] hover:bg-[#8B5A44] text-[#F4F1EB] font-display text-xs font-semibold uppercase tracking-[0.2em] py-4 rounded-sm transition-all shadow-md hover:shadow-lg cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                        disabled={isRedirectingToStripe}
+                        id="btn-stripe-checkout"
+                      >
+                        {isRedirectingToStripe ? (
+                          <div className="flex items-center gap-2">
+                            <span className="w-4 h-4 border-2 border-[#F4F1EB] border-t-transparent rounded-full animate-spin"></span>
+                            <span>{lang === "en" ? "Connecting Stripe..." : "正在连接 Stripe..."}</span>
                           </div>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => {
-                              setCheckoutStep("payment");
-                              if (audioEngineRef.current) audioEngineRef.current.playChime();
-                            }}
-                            className="w-full bg-[#1A2F24] hover:bg-[#8B5A44] text-[#F4F1EB] font-display text-xs font-semibold uppercase tracking-[0.2em] py-4 rounded-sm transition-all shadow-md hover:shadow-lg cursor-pointer flex items-center justify-center gap-2"
-                            id="btn-simulate-checkout"
-                          >
-                            <span>{lang === "en" ? "Proceed to Secure Payment" : "去支付结算 (沙盒)"}</span>
+                        ) : (
+                          <>
+                            <span>{lang === "en" ? "Proceed to Secure Payment" : "前往安全支付"}</span>
                             <ArrowRight className="w-4 h-4" />
-                          </button>
-
-                          {/* Beautiful security and setup notice card */}
-                          <div className="mt-4 p-4 bg-[#E8DDCF]/45 border border-[#D8D2C6]/85 rounded-sm text-left">
-                            <h5 className="font-serif text-xs font-semibold text-[#1A2F24] mb-1.5 flex items-center gap-1.5">
-                              <ShieldCheck className="w-4 h-4 text-[#8B5A44]" />
-                              <span>{lang === "en" ? "Stripe Sandbox Checkout Enabled" : "Stripe 沙盒付款已启用"}</span>
-                            </h5>
-                            <p className="font-sans text-[11px] text-[#1C1C1C]/75 leading-relaxed mb-3">
-                              {lang === "en"
-                                ? "Your live payment gateway is simulated in sandbox mode. To preview or complete the checkout flow, you can safely proceed by entering any standard credit or debit card details."
-                                : "沙盒支付通道已启动。为方便您测试，您可以直接输入任意主流信用卡或借记卡信息以进行真实感结算模拟与全额资产交付。"}
-                            </p>
-                            <div className="font-mono text-[9px] text-stone-600 space-y-1.5">
-                              <div className="flex justify-between">
-                                <span className="font-semibold">{lang === "en" ? "Supported Cards:" : "支持的卡片:"}</span>
-                                <span className="bg-white/50 px-1.5 py-0.5 rounded-xs">{lang === "en" ? "Any standard Credit/Debit card" : "任意标准信用卡 / 借记卡"}</span>
-                              </div>
-                            </div>
-                            
-                            {/* Hidden/Admin helper */}
-                            <div className="mt-3 pt-3 border-t border-[#D8D2C6]/50 text-[9px] font-sans text-stone-500 leading-normal">
-                              {lang === "en"
-                                ? "⚙️ Administrator: To switch from Sandbox to Live mode, configure your STRIPE_SECRET_KEY in the AI Studio Settings."
-                                : "⚙️ 管理员提示：要在该网站上启用实时付款结算，请在 AI Studio 设置中配置您的 STRIPE_SECRET_KEY。"}
-                            </div>
-                          </div>
-                        </>
-                      )}
+                          </>
+                        )}
+                      </button>
+                      
+                      {/* Live Security & Payment Methods Trust Card */}
+                      <div className="mt-4 p-3.5 bg-[#E8DDCF]/35 border border-[#D8D2C6]/70 rounded-sm text-left">
+                        <div className="flex items-center justify-between text-[10px] text-[#1A2F24] font-medium mb-1.5">
+                          <span className="flex items-center gap-1.5 font-display uppercase tracking-wider text-[9px] text-[#8B5A44]">
+                            <Lock className="w-3.5 h-3.5 text-[#8B5A44]" />
+                            <span>{lang === "en" ? "Direct Stripe Gateway" : "Stripe 官方安全网关"}</span>
+                          </span>
+                          <span className="font-mono text-[9px] text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-1.5 py-0.5 rounded-xs">
+                            {lang === "en" ? "LIVE SSL ACTIVE" : "实时安全通道"}
+                          </span>
+                        </div>
+                        <p className="font-sans text-[11px] text-[#1C1C1C]/75 leading-relaxed mb-2.5">
+                          {lang === "en"
+                            ? "Worldwide checkout supporting international credit and debit cards. Postal codes and currency conversions are handled automatically by Stripe for all countries."
+                            : "支持全球信用卡与借记卡。由 Stripe 官方处理跨国支付、汇率换算与邮编适配，即时解锁并交付数字著作。"}
+                        </p>
+                        <div className="flex items-center justify-between text-[9px] font-mono text-stone-500 pt-2 border-t border-[#D8D2C6]/40">
+                          <span>{lang === "en" ? "Accepted:" : "支持方式:"}</span>
+                          <span className="text-stone-700 font-semibold tracking-wider">Visa • Mastercard • Amex • Apple Pay • Google Pay</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}

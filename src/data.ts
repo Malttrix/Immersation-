@@ -10,6 +10,8 @@ export interface CardItem {
   textColor?: string;
   accentColor?: string;
   price?: number;
+  html5FlipbookUrl?: string;
+  epubSourceUrl?: string;
 }
 
 export interface NavigationItem {

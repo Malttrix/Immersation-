@@ -374,8 +374,18 @@ export default function ReadingRoomView({
 
   const html5FlipbookUrl = useMemo(() => {
     if (!currentBook) return "";
-    let raw = (currentBook.html5FlipbookUrl || currentBook.flipbookUrl || "").trim();
-    if (!raw && currentBook.epubSourceUrl && typeof currentBook.epubSourceUrl === "string") {
+    let raw = (
+      currentBook.html5FlipbookUrl ||
+      currentBook.flipbookUrl ||
+      currentBook.html5_flipbook_url ||
+      currentBook.flipbook_url ||
+      (typeof currentBook.format === "object" ? currentBook.format?.html5FlipbookUrl : "") ||
+      (typeof currentBook.format === "object" ? currentBook.format?.flipbookUrl : "") ||
+      ""
+    ).trim();
+    if (!raw && (currentBook.id === "c15-healthy-aging" || currentBook.id === "longevity-reset")) {
+      raw = "https://animated-frangollo-61bd01.netlify.app/";
+    } else if (!raw && currentBook.epubSourceUrl && typeof currentBook.epubSourceUrl === "string") {
       raw = currentBook.epubSourceUrl.trim();
     }
     if (typeof raw === "string" && raw.startsWith("http")) {

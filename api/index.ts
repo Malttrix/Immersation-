@@ -48,23 +48,75 @@ app.use((req: any, res: any, next: any) => {
 });
 
 let stripeClient: Stripe | null = null;
+const STRIPE_CONFIG_FILE = path.join(process.cwd(), ".stripe_config.json");
+let customStripeKey = "";
+
+try {
+  if (fs.existsSync(STRIPE_CONFIG_FILE)) {
+    const raw = fs.readFileSync(STRIPE_CONFIG_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (parsed.stripeSecret && typeof parsed.stripeSecret === "string") {
+      customStripeKey = parsed.stripeSecret.trim();
+    }
+  }
+} catch (e) {
+  // ignore
+}
+
+function getActiveStripeKey(): string {
+  return customStripeKey || process.env.STRIPE_SECRET_KEY || "";
+}
+
 function getStripe(): Stripe {
-  const key = process.env.STRIPE_SECRET_KEY;
+  const key = getActiveStripeKey();
   if (!key) {
     throw new Error("STRIPE_SECRET_KEY environment variable is missing. Please set it in Settings.");
   }
-  if (!stripeClient) {
+  if (!stripeClient || (stripeClient as any)._configuredKey !== key) {
     stripeClient = new Stripe(key);
+    (stripeClient as any)._configuredKey = key;
   }
   return stripeClient;
 }
 
 // Health check endpoint
 app.get("/api/health", (req, res) => {
+  const activeKey = getActiveStripeKey();
   res.json({
     status: "ok",
-    stripe_configured: !!process.env.STRIPE_SECRET_KEY
+    stripe_configured: !!activeKey,
+    stripe_mode: activeKey.startsWith("sk_live_") ? "live" : (activeKey.startsWith("sk_test_") ? "test" : "none"),
+    key_prefix: activeKey ? activeKey.substring(0, 7) + "..." : ""
   });
+});
+
+// Admin endpoint to dynamically set Stripe API keys
+app.post("/api/admin/set-stripe-keys", (req, res) => {
+  try {
+    const { stripeSecret } = req.body || {};
+    if (stripeSecret && typeof stripeSecret === "string" && stripeSecret.trim()) {
+      const cleanKey = stripeSecret.trim();
+      if (!cleanKey.startsWith("sk_live_") && !cleanKey.startsWith("sk_test_")) {
+        return res.status(400).json({ error: "Invalid Stripe Secret Key format. Key must begin with sk_live_ or sk_test_" });
+      }
+      customStripeKey = cleanKey;
+      stripeClient = new Stripe(cleanKey);
+      (stripeClient as any)._configuredKey = cleanKey;
+      try {
+        fs.writeFileSync(STRIPE_CONFIG_FILE, JSON.stringify({ stripeSecret: cleanKey }, null, 2));
+      } catch (e) {
+        console.warn("Could not save stripe config file:", e);
+      }
+      return res.json({ 
+        success: true, 
+        stripe_mode: cleanKey.startsWith("sk_live_") ? "live" : "test",
+        key_prefix: cleanKey.substring(0, 7) + "..."
+      });
+    }
+    return res.status(400).json({ error: "No valid stripeSecret provided" });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || "Failed to update Stripe key" });
+  }
 });
 
 // SEO Crawling Endpoints (Robots.txt & Sitemap.xml)
@@ -112,7 +164,8 @@ app.post("/api/create-checkout-session", async (req, res) => {
     const bookIds = items.map((item: any) => item.id);
 
     // If Stripe secret key is not configured, fall back to sandbox checkout redirection
-    if (!process.env.STRIPE_SECRET_KEY) {
+    const activeKey = getActiveStripeKey();
+    if (!activeKey) {
       const bookIdsBase64 = Buffer.from(JSON.stringify(bookIds)).toString("base64");
       const sandboxSessionId = `SANDBOX_${bookIdsBase64}`;
       return res.json({
@@ -138,16 +191,23 @@ app.post("/api/create-checkout-session", async (req, res) => {
       };
     });
 
-    const session = await stripe.checkout.sessions.create({
+    const sessionPayload: any = {
       payment_method_types: ["card"],
       line_items: lineItems,
       mode: "payment",
+      billing_address_collection: "auto",
       success_url: `${APP_URL}/?checkout_success=true&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${APP_URL}/?checkout_canceled=true`,
       metadata: {
         books: JSON.stringify(bookIds),
       },
-    });
+    };
+
+    if (req.body && req.body.email && typeof req.body.email === "string" && req.body.email.includes("@")) {
+      sessionPayload.customer_email = req.body.email.trim();
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionPayload);
 
     res.json({ url: session.url });
   } catch (error: any) {

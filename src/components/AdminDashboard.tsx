@@ -350,6 +350,72 @@ export default function AdminDashboard({
   const [testingSendFox, setTestingSendFox] = useState(false);
   const [broadcastingId, setBroadcastingId] = useState<string | null>(null);
 
+  const [stripeGatewayStatus, setStripeGatewayStatus] = useState<{ configured: boolean; mode: string; prefix: string }>({
+    configured: true,
+    mode: "live",
+    prefix: ""
+  });
+  const [isSavingStripeKeys, setIsSavingStripeKeys] = useState(false);
+  const [stripeSaveFeedback, setStripeSaveFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/health")
+      .then(res => res.json())
+      .then(data => {
+        if (data) {
+          setStripeGatewayStatus({
+            configured: !!data.stripe_configured,
+            mode: data.stripe_mode || (data.stripe_configured ? "live" : "none"),
+            prefix: data.key_prefix || ""
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSaveStripeConfiguration = async () => {
+    setIsSavingStripeKeys(true);
+    setStripeSaveFeedback(null);
+    localStorage.setItem("immersation_api_settings", JSON.stringify(apiSettings));
+
+    const secretKey = apiSettings.stripeSecret ? apiSettings.stripeSecret.trim() : "";
+    if (secretKey && (secretKey.startsWith("sk_live_") || secretKey.startsWith("sk_test_"))) {
+      try {
+        const res = await fetch("/api/admin/set-stripe-keys", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ stripeSecret: secretKey })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setStripeGatewayStatus({
+            configured: true,
+            mode: data.stripe_mode,
+            prefix: data.key_prefix || secretKey.substring(0, 8) + "..."
+          });
+          setStripeSaveFeedback(
+            lang === "en"
+              ? `Stripe key successfully activated in ${data.stripe_mode.toUpperCase()} mode!`
+              : `Stripe 秘钥已成功激活 (${data.stripe_mode.toUpperCase()} 模式)！`
+          );
+          addAuditLog("Save Stripe Keys", `Activated Stripe key in ${data.stripe_mode} mode.`);
+        } else {
+          setStripeSaveFeedback(`Error: ${data.error || "Failed to update Stripe server key"}`);
+        }
+      } catch (err: any) {
+        setStripeSaveFeedback(`Network error: ${err.message || String(err)}`);
+      }
+    } else {
+      setStripeSaveFeedback(
+        lang === "en"
+          ? "Settings saved to local storage."
+          : "设置已保存至本地。"
+      );
+      addAuditLog("Save Stripe Keys", "Updated global Stripe keys in local store.");
+    }
+    setIsSavingStripeKeys(false);
+  };
+
   useEffect(() => {
     if (sendFoxApiKey) {
       localStorage.setItem("sendfox_api_key", sendFoxApiKey);
@@ -1395,9 +1461,19 @@ export default function AdminDashboard({
     setEbFileUrl(eb.fileUrl || eb.downloadFileUrl || "");
     setEbFormat(eb.format || "Wealth Framework");
 
-    const rawHtml5 = (eb.html5FlipbookUrl || eb.flipbookUrl || "").trim();
+    const rawHtml5 = (
+      eb.html5FlipbookUrl ||
+      eb.flipbookUrl ||
+      eb.html5_flipbook_url ||
+      eb.flipbook_url ||
+      (typeof eb.format === "object" ? eb.format?.html5FlipbookUrl : "") ||
+      (typeof eb.format === "object" ? eb.format?.flipbookUrl : "") ||
+      ""
+    ).trim();
     let initialHtml5 = rawHtml5;
-    if (!initialHtml5 && eb.epubSourceUrl && typeof eb.epubSourceUrl === "string") {
+    if (!initialHtml5 && (eb.id === "c15-healthy-aging" || eb.id === "longevity-reset")) {
+      initialHtml5 = "https://animated-frangollo-61bd01.netlify.app/";
+    } else if (!initialHtml5 && eb.epubSourceUrl && typeof eb.epubSourceUrl === "string") {
       const epub = eb.epubSourceUrl.trim();
       if (epub.toLowerCase().endsWith(".epub")) {
         initialHtml5 = epub.substring(0, epub.length - 5) + ".html";
@@ -1630,6 +1706,40 @@ export default function AdminDashboard({
     setEditingNewsletter(null);
   };
 
+  const syncProductToSupabase = async (fullPayload: any, isEditMode: boolean, targetId: string) => {
+    let currentPayload: any = { ...fullPayload };
+    let strippedColumns: string[] = [];
+    let attempts = 0;
+    let lastErr: any = null;
+
+    while (attempts < 6) {
+      attempts++;
+      const res = isEditMode
+        ? await supabase.from("products").update(currentPayload).eq("id", targetId)
+        : await supabase.from("products").insert([currentPayload]);
+
+      if (!res.error) {
+        if (strippedColumns.length > 0) {
+          console.warn("[Supabase Sync] Products table updated with fallback (stripped columns:", strippedColumns.join(", "), ")");
+        }
+        return { success: true, strippedColumns };
+      }
+
+      lastErr = res.error;
+      const errMsg = res.error.message || String(res.error);
+      const match = errMsg.match(/Could not find the ['"]?([a-zA-Z0-9_]+)['"]? column/i);
+      if (match && match[1]) {
+        const missingCol = match[1];
+        strippedColumns.push(missingCol);
+        delete currentPayload[missingCol];
+      } else {
+        break;
+      }
+    }
+
+    return { success: false, error: lastErr, strippedColumns };
+  };
+
   const handleSaveEbook = (e: React.FormEvent) => {
     e.preventDefault();
     const parsedChapters = ebChapters.split("\n").map(line => {
@@ -1651,6 +1761,10 @@ export default function AdminDashboard({
       cleanHtml5Url = "";
     }
 
+    const formatObj = typeof ebFormat === "object" && ebFormat !== null
+      ? { ...(ebFormat as any), html5FlipbookUrl: cleanHtml5Url, flipbookUrl: cleanHtml5Url }
+      : { en: String(ebFormat || "Wealth Framework"), zh: String(ebFormat || "Wealth Framework"), html5FlipbookUrl: cleanHtml5Url, flipbookUrl: cleanHtml5Url };
+
     const payload = {
       id: ebId,
       title: { en: ebTitleEN, zh: ebTitleZH },
@@ -1663,48 +1777,16 @@ export default function AdminDashboard({
       fileUrl: ebFileUrl || ebEpubSourceUrl,
       downloadFileUrl: ebFileUrl || ebEpubSourceUrl, // Sync both download file fields for security
       discountPercent: ebDiscountPercent,
-      format: ebFormat,
+      format: formatObj,
       textColor: "text-[#F4F1EB]",
       accentColor: "text-[#B69A6B]",
       html5FlipbookUrl: cleanHtml5Url,
       flipbookUrl: cleanHtml5Url,
+      html5_flipbook_url: cleanHtml5Url,
+      flipbook_url: cleanHtml5Url,
       epubSourceUrl: ebEpubSourceUrl || ebFileUrl,
       lastConvertedAt: ebLastConvertedAt,
       epubConversionStatus: ebEpubConversionStatus
-    };
-
-    const syncProductToSupabase = async (fullPayload: any, isEditMode: boolean, targetId: string) => {
-      let currentPayload: any = { ...fullPayload };
-      let strippedColumns: string[] = [];
-      let attempts = 0;
-      let lastErr: any = null;
-
-      while (attempts < 6) {
-        attempts++;
-        const res = isEditMode
-          ? await supabase.from("products").update(currentPayload).eq("id", targetId)
-          : await supabase.from("products").insert([currentPayload]);
-
-        if (!res.error) {
-          if (strippedColumns.length > 0) {
-            console.warn("[Supabase Sync] Products table updated with fallback (stripped columns:", strippedColumns.join(", "), ")");
-          }
-          return { success: true, strippedColumns };
-        }
-
-        lastErr = res.error;
-        const errMsg = res.error.message || String(res.error);
-        const match = errMsg.match(/Could not find the ['"]?([a-zA-Z0-9_]+)['"]? column/i);
-        if (match && match[1]) {
-          const missingCol = match[1];
-          strippedColumns.push(missingCol);
-          delete currentPayload[missingCol];
-        } else {
-          break;
-        }
-      }
-
-      return { success: false, error: lastErr, strippedColumns };
     };
 
     if (editingEbook) {
@@ -2100,17 +2182,31 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                       <span>{lang === "en" ? "System Core Alerts" : "核心网关及硬件监测"}</span>
                     </h3>
                     <div className="space-y-3">
-                      <div className="p-2.5 bg-red-50 border border-red-200 rounded-sm text-xs">
-                        <div className="flex justify-between font-semibold text-red-800">
-                          <span>{lang === "en" ? "STRIPE_SECRET_KEY" : "Stripe 秘钥"}</span>
-                          <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 bg-red-100 rounded">Alert</span>
+                      {stripeGatewayStatus.mode === "live" ? (
+                        <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-sm text-xs">
+                          <div className="flex justify-between font-semibold text-emerald-800">
+                            <span>{lang === "en" ? "STRIPE_SECRET_KEY (Production Live)" : "Stripe 生产实时秘钥"}</span>
+                            <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 bg-emerald-100 rounded">Live Active</span>
+                          </div>
+                          <p className="text-stone-600 text-[10px] mt-1">
+                            {lang === "en" 
+                              ? "Live transaction gateway connected. Credit cards and mobile wallets process genuine payments directly."
+                              : "Stripe 实时交易总线已连接，全球信用卡与移动支付通道正常处理真实账单。"}
+                          </p>
                         </div>
-                        <p className="text-stone-600 text-[10px] mt-1">
-                          {lang === "en" 
-                            ? "Stripe API Key loaded, currently in simulated sandbox environment mode. Enter genuine secret key in settings to process live credit card transactions."
-                            : "Stripe API Key 处于测试沙盒级别。请在集成设置中输入真实生产秘钥以切换实时扣款总线。"}
-                        </p>
-                      </div>
+                      ) : (
+                        <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-sm text-xs">
+                          <div className="flex justify-between font-semibold text-amber-800">
+                            <span>{lang === "en" ? "STRIPE_SECRET_KEY (Test Mode)" : "Stripe 测试模式秘钥"}</span>
+                            <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 bg-amber-100 rounded">{stripeGatewayStatus.configured ? "Test Mode" : "Missing"}</span>
+                          </div>
+                          <p className="text-stone-600 text-[10px] mt-1">
+                            {lang === "en" 
+                              ? "Stripe test key currently loaded. Enter your production secret key (sk_live_...) in Settings below to switch to live credit card billing."
+                              : "Stripe 当前处于测试模式 (sk_test_...)。请在下方设置中粘贴您的生产秘钥 (sk_live_...) 即可切换实时扣款。"}
+                          </p>
+                        </div>
+                      )}
 
                       <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-sm text-xs">
                         <div className="flex justify-between font-semibold text-emerald-800">
@@ -2231,6 +2327,10 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                       const lastConvertedAt = fd.get("lastConvertedAt") as string || null;
                       const epubConversionStatus = fd.get("epubConversionStatus") as string || null;
 
+                      const formatObj = typeof format === "object" && format !== null
+                        ? { ...(format as any), html5FlipbookUrl, flipbookUrl: html5FlipbookUrl }
+                        : { en: String(format || "digital-guide"), zh: String(format || "digital-guide"), html5FlipbookUrl, flipbookUrl: html5FlipbookUrl };
+
                       const payload: any = {
                         id: bookId || `vol-${Date.now()}`,
                         title: { en: titleEN, zh: titleZH },
@@ -2245,9 +2345,11 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                         downloadFileUrl,
                         fileUrl: downloadFileUrl, // Sync both download fields
                         discountPercent,
-                        format,
+                        format: formatObj,
                         html5FlipbookUrl,
                         flipbookUrl: html5FlipbookUrl,
+                        html5_flipbook_url: html5FlipbookUrl,
+                        flipbook_url: html5FlipbookUrl,
                         epubSourceUrl: editingProduct?.epubSourceUrl || downloadFileUrl || "",
                         lastConvertedAt,
                         epubConversionStatus
@@ -5136,26 +5238,68 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
 
                 {/* 2. Stripe Gateways config */}
                 <div className="bg-[#E8DDCF]/15 border border-[#D8D2C6]/40 p-5 rounded-sm space-y-3">
-                  <span className="font-serif text-sm font-semibold text-[#1A2F24] block flex items-center gap-1.5">
-                    <Key className="w-4 h-4 text-[#8B5A44]" />
-                    <span>Stripe Transaction Gateway Gatekeys</span>
-                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="font-serif text-sm font-semibold text-[#1A2F24] flex items-center gap-1.5">
+                      <Key className="w-4 h-4 text-[#8B5A44]" />
+                      <span>Stripe Transaction Gateway Gatekeys</span>
+                    </span>
+                    <span className={`text-[9px] uppercase font-mono px-2 py-0.5 rounded font-bold ${
+                      stripeGatewayStatus.mode === "live" 
+                        ? "bg-emerald-100 text-emerald-800" 
+                        : "bg-amber-100 text-amber-800"
+                    }`}>
+                      {stripeGatewayStatus.mode === "live" ? "Live Mode" : "Test Mode"}
+                    </span>
+                  </div>
+
+                  {stripeSaveFeedback && (
+                    <div className={`p-2.5 rounded-xs text-xs font-mono ${
+                      stripeSaveFeedback.startsWith("Error") 
+                        ? "bg-red-50 text-red-700 border border-red-200" 
+                        : "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                    }`}>
+                      {stripeSaveFeedback}
+                    </div>
+                  )}
+
                   <div>
-                    <label className="block mb-1 font-semibold">Stripe Publishable Key</label>
-                    <input type="text" value={apiSettings.stripePublishable} onChange={(e) => setApiSettings({ ...apiSettings, stripePublishable: e.target.value })} className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 font-mono text-[10px]" />
+                    <label className="block mb-1 font-semibold text-xs text-[#1A2F24]">Stripe Publishable Key</label>
+                    <input 
+                      type="text" 
+                      value={apiSettings.stripePublishable} 
+                      onChange={(e) => setApiSettings({ ...apiSettings, stripePublishable: e.target.value })} 
+                      placeholder="pk_live_... or pk_test_..."
+                      className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 font-mono text-[10px]" 
+                    />
                   </div>
                   <div>
-                    <label className="block mb-1 font-semibold">Stripe Secret API Key (STRIPE_SECRET_KEY)</label>
-                    <input type="password" value={apiSettings.stripeSecret} onChange={(e) => setApiSettings({ ...apiSettings, stripeSecret: e.target.value })} className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 font-mono text-[10px]" />
+                    <label className="block mb-1 font-semibold text-xs text-[#1A2F24]">Stripe Secret API Key (STRIPE_SECRET_KEY)</label>
+                    <input 
+                      type="password" 
+                      value={apiSettings.stripeSecret} 
+                      onChange={(e) => setApiSettings({ ...apiSettings, stripeSecret: e.target.value })} 
+                      placeholder="sk_live_... (enter for live real credit card charges) or sk_test_..."
+                      className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 font-mono text-[10px]" 
+                    />
+                    <p className="text-[10px] text-stone-500 mt-1">
+                      {lang === "en"
+                        ? "To switch from Test to Live mode, paste your production secret key (sk_live_...) from your Stripe Dashboard."
+                        : "要从测试切换到生产实时模式，请在此粘贴您 Stripe 控制台中的生产秘钥 (sk_live_...)。"}
+                    </p>
                   </div>
                   <button
-                    onClick={() => {
-                      addAuditLog("Save Stripe Keys", "Updated global Stripe transaction keys in session store.");
-                      alert("Stripe keys successfully aligned!");
-                    }}
-                    className="border border-[#D8D2C6] bg-white hover:border-[#8B5A44] hover:text-[#8B5A44] px-4 py-2 rounded-xs font-display text-[9px] uppercase font-bold tracking-wider"
+                    onClick={handleSaveStripeConfiguration}
+                    disabled={isSavingStripeKeys}
+                    className="border border-[#D8D2C6] bg-[#1A2F24] hover:bg-[#8B5A44] text-[#F4F1EB] px-4 py-2.5 rounded-xs font-display text-[9px] uppercase font-bold tracking-wider transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-2"
                   >
-                    Save Key Configuration
+                    {isSavingStripeKeys ? (
+                      <>
+                        <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                        <span>Saving...</span>
+                      </>
+                    ) : (
+                      <span>Save & Activate Stripe Keys</span>
+                    )}
                   </button>
                 </div>
 
