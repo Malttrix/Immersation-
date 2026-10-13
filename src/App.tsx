@@ -460,8 +460,9 @@ export default function App() {
       const fetchSupabaseProducts = () => {
         supabase.from('products').select('*').then(({ data, error }) => {
           if (!error && data) {
+            const productRows = data.filter((item: any) => item.id && !item.id.startsWith('__'));
             setBooks(prevBooks => {
-              const updated = data.map((spItem: any) => {
+              const updated = productRows.map((spItem: any) => {
                 const existing = prevBooks.find((b: any) => b.id === spItem.id);
                 const spHtml5 = (
                   spItem.html5FlipbookUrl ||
@@ -481,9 +482,9 @@ export default function App() {
                   flipbookUrl: finalHtml5
                 };
               });
-              const spIds = new Set(data.map((sp: any) => sp.id));
+              const spIds = new Set(productRows.map((sp: any) => sp.id));
               prevBooks.forEach((pb: any) => {
-                if (pb.id && !spIds.has(pb.id)) {
+                if (pb.id && !pb.id.startsWith('__') && !spIds.has(pb.id)) {
                   updated.push(pb);
                 }
               });
@@ -746,159 +747,12 @@ export default function App() {
     const saved = localStorage.getItem("immersation_unlocked_books");
     return saved ? JSON.parse(saved) : ["starter-kit"]; // starter-kit unlocked by default
   });
-  const [checkoutStep, setCheckoutStep] = useState<"cart" | "payment" | "processing" | "success">("cart");
+  const [checkoutStep, setCheckoutStep] = useState<"cart" | "processing" | "success">("cart");
   const [orderReceipt, setOrderReceipt] = useState<any[]>([]);
 
   const [isStripeConfigured, setIsStripeConfigured] = useState(true);
   const [isRedirectingToStripe, setIsRedirectingToStripe] = useState(false);
-
-  // Direct Card Payment States
-  const [cardName, setCardName] = useState("");
-  const [cardNumber, setCardNumber] = useState("");
-  const [cardExpiry, setCardExpiry] = useState("");
-  const [cardCvc, setCardCvc] = useState("");
   const [paymentError, setPaymentError] = useState<string | null>(null);
-
-  const handleSandboxPaymentSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setPaymentError(null);
-    
-    const cleanCard = cardNumber.replace(/\s+/g, "");
-    
-    // Validate card number length (standard cards are 13 to 19 digits)
-    if (cleanCard.length < 13 || cleanCard.length > 19 || !/^\d+$/.test(cleanCard)) {
-      setPaymentError(
-        lang === "en"
-          ? "Declined: Please enter a valid card number (13-19 digits)."
-          : "交易拒绝：请输入有效的卡号（13-19位数字）。"
-      );
-      return;
-    }
-
-    // Validate Luhn Algorithm Check
-    let luhnSum = 0;
-    let shouldDouble = false;
-    for (let i = cleanCard.length - 1; i >= 0; i--) {
-      let digit = parseInt(cleanCard.charAt(i), 10);
-      if (shouldDouble) {
-        digit *= 2;
-        if (digit > 9) {
-          digit -= 9;
-        }
-      }
-      luhnSum += digit;
-      shouldDouble = !shouldDouble;
-    }
-    
-    if (luhnSum % 10 !== 0) {
-      setPaymentError(
-        lang === "en"
-          ? "Declined: Invalid card number checksum. Please check your card digits or proceed via Stripe Checkout."
-          : "交易拒绝：卡号校验未通过，请检查您输入的卡号或直接点击下方 Stripe 官方通道结算。"
-      );
-      return;
-    }
-
-    // Validate expiry date MM/YY format
-    if (!cardExpiry || !/^\d{2}\/\d{2}$/.test(cardExpiry)) {
-      setPaymentError(
-        lang === "en"
-          ? "Declined: Expiry date must be in MM/YY format."
-          : "交易拒绝：到期日必须为 MM/YY 格式。"
-      );
-      return;
-    }
-
-    const [monthStr, yearStr] = cardExpiry.split("/");
-    const month = parseInt(monthStr, 10);
-    if (month < 1 || month > 12) {
-      setPaymentError(
-        lang === "en"
-          ? "Declined: Invalid expiration month."
-          : "交易拒绝：无效的到期月份。"
-      );
-      return;
-    }
-
-    // Validate expiry is in the future
-    const currentYearShort = parseInt(new Date().getFullYear().toString().slice(-2), 10);
-    const currentMonth = new Date().getMonth() + 1;
-    const expYearShort = parseInt(yearStr, 10);
-    
-    if (expYearShort < currentYearShort || (expYearShort === currentYearShort && month < currentMonth)) {
-      setPaymentError(
-        lang === "en"
-          ? "Declined: This card has already expired."
-          : "交易拒绝：该卡片已过期。"
-      );
-      return;
-    }
-
-    // Validate CVC
-    if (!cardCvc || cardCvc.length < 3 || cardCvc.length > 4 || !/^\d+$/.test(cardCvc)) {
-      setPaymentError(
-        lang === "en"
-          ? "Declined: Invalid CVC (3-4 digits)."
-          : "交易拒绝：无效的 CVC 安全码（3-4位数字）。"
-      );
-      return;
-    }
-
-    // Postcode/ZIP validation omitted: Buyers can be from any country in the world without postcode requirements
-
-    setCheckoutStep("processing");
-
-    setTimeout(() => {
-      const newUnlocked = [...unlockedBookIds, ...cartItems.map(item => item.id)];
-      const uniqueUnlocked = Array.from(new Set(newUnlocked));
-      setUnlockedBookIds(uniqueUnlocked);
-      localStorage.setItem("immersation_unlocked_books", JSON.stringify(uniqueUnlocked));
-      
-      // Append simulated transaction log
-      const totalAmount = cartItems.reduce((acc, item) => acc + (item.price || 19.00), 0);
-      const newTx = {
-        id: `TXN-${Math.floor(1000 + Math.random() * 9000)}`,
-        email: userEmail || "support@immersation.com",
-        item: cartItems.map(item => typeof item.title === "object" && item.title !== null ? (item.title[lang] || item.title.en || item.title.zh) : (item.title || "Item")).join(", "),
-        amount: totalAmount,
-        date: new Date().toISOString().split("T")[0],
-        status: "Successful"
-      };
-      setSystemTransactions(prev => [newTx, ...prev]);
-
-      // Sync transaction to Supabase database if configured
-      if (supabase) {
-        try {
-          supabase
-            .from("purchases")
-            .insert([{
-              transaction_id: newTx.id,
-              user_email: newTx.email,
-              items: newTx.item,
-              amount: newTx.amount,
-              purchased_at: new Date().toISOString(),
-              status: newTx.status
-            }])
-            .then(({ error }) => {
-              if (error) console.warn("Supabase purchase sync skipped/table missing:", error);
-            });
-        } catch (err) {
-          console.warn("Supabase purchase sync error:", err);
-        }
-      }
-
-      // If simulated user doesn't exist in our list, add them!
-      if (userEmail && !systemMembers.some(m => m.email === userEmail)) {
-        setSystemMembers(prev => [...prev, { email: userEmail, role: "Active Thought Leader", joined: new Date().toISOString().split("T")[0], status: "Active" }]);
-      }
-
-      setOrderReceipt([...cartItems]);
-      setCartItems([]);
-      setCheckoutStep("success");
-      
-      if (audioEngineRef.current) audioEngineRef.current.playChime();
-    }, 2200);
-  };
 
   // Check if Stripe configuration is active on server
   useEffect(() => {
@@ -1221,7 +1075,7 @@ export default function App() {
 
   // Track checkout initiations in real-time
   useEffect(() => {
-    if (checkoutStep === "payment") {
+    if (checkoutStep === "processing") {
       trackCheckoutInitiation();
     }
   }, [checkoutStep]);
@@ -2280,181 +2134,6 @@ export default function App() {
                       {lang === "en" ? "Browse Products" : "浏览精选产品"}
                     </button>
                   </div>
-                ) : checkoutStep === "payment" ? (
-                  <form onSubmit={handleSandboxPaymentSubmit} className="flex flex-col h-full justify-between animate-fade-in text-left" id="checkout-payment-form">
-                    <div className="space-y-4">
-                      {/* Navigation head inside checkout */}
-                      <div className="flex items-center gap-2 pb-4 border-b border-[#D8D2C6]/30">
-                        <button 
-                          type="button" 
-                          onClick={() => setCheckoutStep("cart")}
-                          className="text-[10px] font-display uppercase tracking-widest text-[#8B5A44] font-bold hover:underline cursor-pointer flex items-center gap-1"
-                        >
-                          ← {lang === "en" ? "Back to Cart" : "返回购物车"}
-                        </button>
-                        <span className="text-stone-300">•</span>
-                        <span className="text-[10px] font-display text-stone-500 uppercase tracking-widest">
-                          {lang === "en" ? "Direct Card Checkout" : "银行卡安全结算"}
-                        </span>
-                      </div>
-
-                      {/* Amount display */}
-                      <div className="bg-[#1A2F24]/5 border border-[#D8D2C6]/40 p-4 rounded-sm flex justify-between items-center">
-                        <span className="text-xs font-serif text-[#1C1C1C]/75">{lang === "en" ? "Total Payable" : "应付金额"}</span>
-                        <span className="text-base font-mono font-bold text-[#8B5A44]">
-                          ${cartItems.reduce((acc, item) => acc + (item.price || 19.00), 0).toFixed(2)}
-                        </span>
-                      </div>
-
-                      {/* Error Banner */}
-                      {paymentError && (
-                        <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-sm font-sans">
-                          {paymentError}
-                        </div>
-                      )}
-
-                      {/* Card Details inputs */}
-                      <div className="space-y-3 pt-2 text-left">
-                        {/* Email Indicator */}
-                        <div>
-                          <label className="block text-[10px] font-display font-semibold uppercase tracking-wider text-[#1C1C1C]/60 mb-1.5 text-left">
-                            {lang === "en" ? "Email Address" : "电子邮箱"}
-                          </label>
-                          <input
-                            type="email"
-                            required
-                            disabled={!!userEmail}
-                            value={userEmail || ""}
-                            onChange={(e) => {}}
-                            placeholder={lang === "en" ? "your.email@gmail.com" : "您的电子邮箱..."}
-                            className="w-full bg-white border border-[#D8D2C6] focus:border-[#8B5A44] focus:outline-none rounded-sm py-3 px-4 font-sans text-xs text-[#1C1C1C] transition-brand disabled:opacity-75 disabled:bg-stone-100"
-                          />
-                        </div>
-
-                        {/* Name on Card */}
-                        <div>
-                          <label className="block text-[10px] font-display font-semibold uppercase tracking-wider text-[#1C1C1C]/60 mb-1.5 text-left">
-                            {lang === "en" ? "Cardholder Name" : "持卡人姓名"}
-                          </label>
-                          <input
-                            type="text"
-                            required
-                            value={cardName}
-                            onChange={(e) => setCardName(e.target.value)}
-                            placeholder={lang === "en" ? "Satoshi Nakamoto" : "持卡人姓名..."}
-                            className="w-full bg-white border border-[#D8D2C6] focus:border-[#8B5A44] focus:outline-none rounded-sm py-3 px-4 font-sans text-xs text-[#1C1C1C] transition-brand"
-                          />
-                        </div>
-
-                        {/* Card Number */}
-                        <div>
-                          <label className="block text-[10px] font-display font-semibold uppercase tracking-wider text-[#1C1C1C]/60 mb-1.5 text-left flex justify-between items-center">
-                            <span>{lang === "en" ? "Card Number" : "卡号"}</span>
-                            <span className="text-[9px] text-[#8B5A44] font-mono">
-                              Visa • Mastercard • Amex • Discover
-                            </span>
-                          </label>
-                          <div className="relative">
-                            <CreditCard className="absolute left-4 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[#1C1C1C]/40" />
-                            <input
-                              type="text"
-                              required
-                              maxLength={19}
-                              value={cardNumber}
-                              onChange={(e) => {
-                                const val = e.target.value.replace(/\s+/g, "").replace(/[^0-9]/gi, "");
-                                const matches = val.match(/\d{4,16}/g);
-                                const match = (matches && matches[0]) || "";
-                                const parts = [];
-
-                                for (let i = 0, len = match.length; i < len; i += 4) {
-                                  parts.push(match.substring(i, i + 4));
-                                }
-
-                                if (parts.length > 0) {
-                                  setCardNumber(parts.join(" "));
-                                } else {
-                                  setCardNumber(val);
-                                }
-                              }}
-                              placeholder="•••• •••• •••• ••••"
-                              className="w-full bg-white border border-[#D8D2C6] focus:border-[#8B5A44] focus:outline-none rounded-sm py-3 pl-12 pr-4 font-mono text-xs text-[#1C1C1C] transition-brand"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Exp, CVC 2-col row (No postcode needed for international buyers) */}
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-[10px] font-display font-semibold uppercase tracking-wider text-[#1C1C1C]/60 mb-1.5 text-left">
-                              {lang === "en" ? "Expiry Date" : "有效期"}
-                            </label>
-                            <input
-                              type="text"
-                              required
-                              maxLength={5}
-                              value={cardExpiry}
-                              onChange={(e) => {
-                                let val = e.target.value.replace(/[^0-9]/g, "");
-                                if (val.length >= 2) {
-                                  val = val.substring(0, 2) + "/" + val.substring(2, 4);
-                                }
-                                setCardExpiry(val);
-                              }}
-                              placeholder="MM/YY"
-                              className="w-full bg-white border border-[#D8D2C6] focus:border-[#8B5A44] focus:outline-none rounded-sm py-3 px-3 text-center font-mono text-xs text-[#1C1C1C] transition-brand"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-display font-semibold uppercase tracking-wider text-[#1C1C1C]/60 mb-1.5 text-left">
-                              CVC
-                            </label>
-                            <input
-                              type="password"
-                              required
-                              maxLength={4}
-                              value={cardCvc}
-                              onChange={(e) => setCardCvc(e.target.value.replace(/[^0-9]/g, ""))}
-                              placeholder="123"
-                              className="w-full bg-white border border-[#D8D2C6] focus:border-[#8B5A44] focus:outline-none rounded-sm py-3 px-3 text-center font-mono text-xs text-[#1C1C1C] transition-brand"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Direct Stripe alternative button */}
-                        <div className="pt-1">
-                          <button
-                            type="button"
-                            onClick={handleStripeCheckout}
-                            className="w-full text-center py-2 text-[10px] text-[#8B5A44] font-display uppercase tracking-wider hover:underline flex items-center justify-center gap-1 cursor-pointer"
-                          >
-                            <span>{lang === "en" ? "Or checkout via Stripe Hosted Page" : "或直接使用 Stripe 官方收银台支付"}</span>
-                            <ArrowRight className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Submit payment */}
-                    <div className="border-t border-[#D8D2C6]/50 pt-6 mt-6">
-                      <div className="flex items-center justify-center gap-1.5 text-[9px] text-[#1C1C1C]/50 mb-4 font-mono uppercase tracking-wider">
-                        <Lock className="w-3 h-3 text-[#8B5A44]" />
-                        <span>{lang === "en" ? "256-Bit Bank-Grade SSL Encryption" : "256位银行级 SSL 安全加密信道"}</span>
-                      </div>
-                      
-                      <button
-                        type="submit"
-                        className="w-full bg-[#1A2F24] hover:bg-[#8B5A44] text-[#F4F1EB] font-display text-xs font-semibold uppercase tracking-[0.2em] py-4 rounded-sm transition-all shadow-md hover:shadow-lg cursor-pointer flex items-center justify-center gap-2"
-                      >
-                        <span>
-                          {lang === "en" 
-                            ? `Authorize Payment: $${cartItems.reduce((acc, item) => acc + (item.price || 19.00), 0).toFixed(2)}`
-                            : `授权支付：$${cartItems.reduce((acc, item) => acc + (item.price || 19.00), 0).toFixed(2)}`}
-                        </span>
-                        <Unlock className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </form>
                 ) : (
                   <div className="flex flex-col h-full justify-between animate-fade-in" id="checkout-cart-view">
                     <div className="flex-1 overflow-y-auto">

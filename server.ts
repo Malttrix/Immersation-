@@ -66,12 +66,32 @@ try {
   // ignore
 }
 
+async function loadStripeKeyFromSupabase(): Promise<string> {
+  if (customStripeKey) return customStripeKey;
+  if (serverSupabase) {
+    try {
+      const { data, error } = await serverSupabase
+        .from("products")
+        .select("description")
+        .eq("id", "__system_stripe_config__")
+        .single();
+      if (!error && data?.description?.stripeSecret) {
+        customStripeKey = String(data.description.stripeSecret).trim();
+        return customStripeKey;
+      }
+    } catch (e) {
+      console.warn("Could not load Stripe key from Supabase:", e);
+    }
+  }
+  return customStripeKey || process.env.STRIPE_SECRET_KEY || "";
+}
+
 function getActiveStripeKey(): string {
   return customStripeKey || process.env.STRIPE_SECRET_KEY || "";
 }
 
-function getStripe(): Stripe {
-  const key = getActiveStripeKey();
+function getStripe(overrideKey?: string): Stripe {
+  const key = overrideKey || getActiveStripeKey();
   if (!key) {
     throw new Error("STRIPE_SECRET_KEY environment variable is missing. Please set it in Settings.");
   }
@@ -83,8 +103,11 @@ function getStripe(): Stripe {
 }
 
 // Health check endpoint
-app.get("/api/health", (req, res) => {
-  const activeKey = getActiveStripeKey();
+app.get("/api/health", async (req, res) => {
+  let activeKey = getActiveStripeKey();
+  if (!activeKey) {
+    activeKey = await loadStripeKeyFromSupabase();
+  }
   res.json({ 
     status: "ok", 
     stripe_configured: !!activeKey,
@@ -94,7 +117,7 @@ app.get("/api/health", (req, res) => {
 });
 
 // Admin endpoint to dynamically set Stripe API keys
-app.post("/api/admin/set-stripe-keys", (req, res) => {
+app.post("/api/admin/set-stripe-keys", async (req, res) => {
   try {
     const { stripeSecret } = req.body || {};
     if (stripeSecret && typeof stripeSecret === "string" && stripeSecret.trim()) {
@@ -109,6 +132,19 @@ app.post("/api/admin/set-stripe-keys", (req, res) => {
         fs.writeFileSync(STRIPE_CONFIG_FILE, JSON.stringify({ stripeSecret: cleanKey }, null, 2));
       } catch (e) {
         console.warn("Could not save stripe config file:", e);
+      }
+      if (serverSupabase) {
+        try {
+          await serverSupabase.from("products").upsert({
+            id: "__system_stripe_config__",
+            title: { en: "Stripe Config", zh: "Stripe 配置" },
+            tagline: { en: "internal", zh: "internal" },
+            description: { stripeSecret: cleanKey },
+            price: 0
+          }, { onConflict: "id" });
+        } catch (e) {
+          console.warn("Could not save Stripe key to Supabase:", e);
+        }
       }
       return res.json({ 
         success: true, 
@@ -182,8 +218,12 @@ app.post("/api/create-checkout-session", async (req, res) => {
     }
     const bookIds = items.map((item: any) => item.id);
 
-    // If Stripe secret key is not configured, fall back to sandbox checkout redirection
-    const activeKey = getActiveStripeKey();
+    // If Stripe secret key is not in memory or env, check Supabase
+    let activeKey = getActiveStripeKey();
+    if (!activeKey) {
+      activeKey = await loadStripeKeyFromSupabase();
+    }
+
     if (!activeKey) {
       const bookIdsBase64 = Buffer.from(JSON.stringify(bookIds)).toString("base64");
       const sandboxSessionId = `SANDBOX_${bookIdsBase64}`;
@@ -193,7 +233,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
       });
     }
 
-    const stripe = getStripe();
+    const stripe = getStripe(activeKey);
 
     const lineItems = items.map((item: any) => {
       const title = item.title[lang] || item.title["en"] || "Digital Volume";
