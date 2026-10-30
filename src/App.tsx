@@ -68,6 +68,7 @@ import AIToolkitsView from "./components/AIToolkitsView";
 import AudioExperiencesView from "./components/AudioExperiencesView";
 import WealthFrameworksView from "./components/WealthFrameworksView";
 import PillarsView from "./components/PillarsView";
+import { secureFetch, loadLibrary } from "./lib/security-api";
 import AdminDashboard from "./components/AdminDashboard";
 import SEOHead from "./components/SEOHead";
 
@@ -331,14 +332,6 @@ const sanitizeBooks = (items: any[]): any[] => {
         (typeof b.format === "object" && b.format?.flipbookUrl ? String(b.format.flipbookUrl).trim() : "") ||
         ""
       );
-      if (!rawFlip && (identifier === "c15-healthy-aging" || identifier === "longevity-reset")) {
-        rawFlip = "https://animated-frangollo-61bd01.netlify.app/";
-      } else if (!rawFlip && b.epubSourceUrl && typeof b.epubSourceUrl === "string") {
-        const epub = b.epubSourceUrl.trim();
-        if (epub.toLowerCase().endsWith(".epub")) {
-          rawFlip = epub.substring(0, epub.length - 5) + ".html";
-        }
-      }
       let sanitizedFlipbookUrl = rawFlip;
       if (sanitizedFlipbookUrl.toLowerCase().endsWith(".pdf")) {
         sanitizedFlipbookUrl = "";
@@ -422,94 +415,12 @@ export default function App() {
   const [subInterests, setSubInterests] = useState<string[]>(["body", "tool", "capital"]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [ambientOn, setAmbientOn] = useState(false);
-  const [books, setBooks] = useState<any[]>(() => {
-    let initial = [...productBooks];
-    try {
-      const saved = localStorage.getItem("immersation_books");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          initial = initial.map((defBook: any) => {
-            const localBook = parsed.find((b: any) => b.id === defBook.id);
-            if (localBook) {
-              return { ...defBook, ...localBook };
-            }
-            return defBook;
-          });
-          const initialIds = new Set(initial.map(b => b.id));
-          parsed.forEach((localBook: any) => {
-            if (localBook.id && !initialIds.has(localBook.id)) {
-              initial.push(localBook);
-            }
-          });
-        }
-      }
-    } catch (e) {
-      console.error("Error reading immersation_books from localStorage", e);
-    }
-    return sanitizeBooks(initial);
-  });
-  useEffect(() => {
-    localStorage.setItem("immersation_books", JSON.stringify(books));
-  }, [books]);
+  const [books, setBooks] = useState<any[]>(() => sanitizeBooks([...productBooks]));
 
-  // Fetch products (books) from Supabase
   useEffect(() => {
-    let productsSubscription: any = null;
-    if (supabase) {
-      const fetchSupabaseProducts = () => {
-        supabase.from('products').select('*').then(({ data, error }) => {
-          if (!error && data) {
-            const productRows = data.filter((item: any) => item.id && !item.id.startsWith('__'));
-            setBooks(prevBooks => {
-              const updated = productRows.map((spItem: any) => {
-                const existing = prevBooks.find((b: any) => b.id === spItem.id);
-                const spHtml5 = (
-                  spItem.html5FlipbookUrl ||
-                  spItem.html5_flipbook_url ||
-                  spItem.flipbookUrl ||
-                  spItem.flipbook_url ||
-                  (typeof spItem.format === 'object' ? spItem.format?.html5FlipbookUrl : '') ||
-                  (typeof spItem.format === 'object' ? spItem.format?.flipbookUrl : '') ||
-                  ""
-                ).trim();
-                const existingHtml5 = (existing?.html5FlipbookUrl || existing?.flipbookUrl || "").trim();
-                const finalHtml5 = spHtml5 || existingHtml5;
-                return {
-                  ...existing,
-                  ...spItem,
-                  html5FlipbookUrl: finalHtml5,
-                  flipbookUrl: finalHtml5
-                };
-              });
-              const spIds = new Set(productRows.map((sp: any) => sp.id));
-              prevBooks.forEach((pb: any) => {
-                if (pb.id && !pb.id.startsWith('__') && !spIds.has(pb.id)) {
-                  updated.push(pb);
-                }
-              });
-              return sanitizeBooks(updated);
-            });
-          }
-        });
-      };
-      
-      fetchSupabaseProducts();
-      
-      productsSubscription = supabase
-        .channel('public:products')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, (payload) => {
-          console.log("Supabase Realtime: products table changed", payload);
-          fetchSupabaseProducts();
-        })
-        .subscribe();
-    }
-    
-    return () => {
-      if (productsSubscription && supabase) {
-        supabase.removeChannel(productsSubscription);
-      }
-    };
+    secureFetch('/api/products').then(r => r.ok ? r.json() : null).then(data => {
+      if (data?.products) setBooks(sanitizeBooks(data.products.map((p: any) => ({ ...productBooks.find(b => b.id === p.id), ...p }))));
+    }).catch(() => {});
   }, []);
   const [articles, setArticles] = useState<any[]>(() => {
     let initial = [...defaultArticles];
@@ -650,29 +561,6 @@ export default function App() {
     }
   }, []);
 
-  // Fetch purchases from Supabase to ensure live transaction data in admin dashboard
-  useEffect(() => {
-    if (supabase) {
-      supabase
-        .from("purchases")
-        .select("*")
-        .order("purchased_at", { ascending: false })
-        .then(({ data, error }) => {
-          if (!error && data && data.length > 0) {
-            const loaded = data.map((item: any) => ({
-              id: item.transaction_id || `TXN-${item.id}`,
-              email: item.user_email,
-              item: item.items,
-              amount: Number(item.amount),
-              date: item.purchased_at ? item.purchased_at.split("T")[0] : new Date().toISOString().split("T")[0],
-              status: item.status || "Successful"
-            }));
-            setSystemTransactions(loaded);
-          }
-        });
-    }
-  }, []);
-
   const [activeArticleSlug, setActiveArticleSlug] = useState<string | null>(() => {
     const initialPath = window.location.pathname;
     const { slug } = getViewForPath(initialPath);
@@ -699,20 +587,14 @@ export default function App() {
   const [accountOpen, setAccountOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   const [cartItems, setCartItems] = useState<any[]>([]);
-  const [userEmail, setUserEmail] = useState<string | null>(() => {
-    return localStorage.getItem("immersation_user_email") || null;
-  });
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
 
   // Google Auth & Admin States
   const [showGoogleModal, setShowGoogleModal] = useState(false);
   const [googleEmailInput, setGoogleEmailInput] = useState("");
-  const [googlePasswordInput, setGooglePasswordInput] = useState("");
   const [googleAuthError, setGoogleAuthError] = useState("");
-  const [isLiveCheckout, setIsLiveCheckout] = useState(() => {
-    const saved = localStorage.getItem("immersation_checkout_mode");
-    return saved !== null ? saved === "live" : true;
-  });
   const [adminTab, setAdminTab] = useState<"overview" | "members" | "books" | "transactions" | "library">("overview");
 
   const [systemMembers, setSystemMembers] = useState<any[]>(() => {
@@ -729,174 +611,69 @@ export default function App() {
     localStorage.setItem("immersation_members", JSON.stringify(systemMembers));
   }, [systemMembers]);
 
-  const [systemTransactions, setSystemTransactions] = useState<any[]>(() => {
-    const saved = localStorage.getItem("immersation_transactions");
-    if (saved) return JSON.parse(saved);
-    return [
-    { id: "TXN-9021", email: "support@immersation.com", item: "Substack Article System", amount: 19.00, date: "2026-07-01", status: "Successful" },
-    { id: "TXN-8742", email: "guest.thinker@gmail.com", item: "Sovereign Digital Infrastructure", amount: 19.00, date: "2026-07-04", status: "Successful" },
-    { id: "TXN-7391", email: "dreammyhomee@gmail.com", item: "Personal Intelligence System Bundle", amount: 49.00, date: "2026-07-08", status: "Successful" }
-  ];
-  });
-  useEffect(() => {
-    localStorage.setItem("immersation_transactions", JSON.stringify(systemTransactions));
-  }, [systemTransactions]);
-
-  // Payment Gateway & Digital Library Unlocked States
-  const [unlockedBookIds, setUnlockedBookIds] = useState<string[]>(() => {
-    const saved = localStorage.getItem("immersation_unlocked_books");
-    return saved ? JSON.parse(saved) : ["starter-kit"]; // starter-kit unlocked by default
-  });
+  const [systemTransactions, setSystemTransactions] = useState<any[]>([]);
+  const [unlockedBookIds, setUnlockedBookIds] = useState<string[]>([]);
+  const checkoutAttempt = useRef<{ signature: string; key: string } | null>(null);
+  const checkoutBusy = useRef(false);
   const [checkoutStep, setCheckoutStep] = useState<"cart" | "processing" | "success">("cart");
   const [orderReceipt, setOrderReceipt] = useState<any[]>([]);
 
-  const [isStripeConfigured, setIsStripeConfigured] = useState(true);
   const [isRedirectingToStripe, setIsRedirectingToStripe] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
-  // Check if Stripe configuration is active on server
   useEffect(() => {
-    fetch("/api/health")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.stripe_configured) {
-          setIsStripeConfigured(true);
-        }
-      })
-      .catch((err) => console.error("Stripe configuration check failed:", err));
-  }, []);
-
-  // Close popup window if authenticated and notify opener window
-  useEffect(() => {
-    if (window.opener && supabase) {
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session?.user) {
-          window.opener.postMessage({ type: "OAUTH_AUTH_SUCCESS", email: session.user.email }, "*");
-          window.close();
-        }
-      });
-
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-        if (session?.user) {
-          window.opener.postMessage({ type: "OAUTH_AUTH_SUCCESS", email: session.user.email }, "*");
-          window.close();
-        }
-      });
-      return () => {
-        subscription.unsubscribe();
-      };
-    }
-  }, []);
-
-  // Listen to Supabase Auth State Changes if configured
-  useEffect(() => {
-    if (!supabase) return;
-
-    // Fetch initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        const email = session.user.email;
-        if (email) {
-          localStorage.setItem("immersation_user_email", email);
-          localStorage.setItem("immersation_login_type", "oauth");
-          setUserEmail(email);
-          setSystemMembers(prev => {
-            if (prev.some(m => m.email === email)) return prev;
-            return [...prev, {
-              email,
-              role: email === "dreammyhomee@gmail.com" ? "System Administrator" : "Active Thought Leader",
-              joined: new Date().toISOString().split("T")[0],
-              status: "Active",
-              regMethod: "Google Account"
-            }];
-          });
-          setShowGoogleModal(false);
-          setIsSigningIn(false);
-          if (email === "dreammyhomee@gmail.com") {
-            const allBookIds = books.map(b => b.id);
-            setUnlockedBookIds(allBookIds);
-            localStorage.setItem("immersation_unlocked_books", JSON.stringify(allBookIds));
-          }
-        }
+    let generation = 0;
+    const refresh = async () => {
+      const current = ++generation;
+      setIsAdmin(false);
+      setUnlockedBookIds([]);
+      setSystemTransactions([]);
+      const session = supabase ? (await supabase.auth.getSession()).data.session : null;
+      if (current !== generation) return;
+      setUserEmail(session?.user.email || null);
+      if (session) { setShowGoogleModal(false); setIsSigningIn(false); }
+      if (session) await secureFetch('/api/claim-purchases', { method: 'POST' }).catch(() => {});
+      const library = await loadLibrary().catch(() => []);
+      if (current !== generation) return;
+      setUnlockedBookIds(library);
+      const adminResponse = session ? await secureFetch('/api/admin/me') : null;
+      if (current !== generation) return;
+      setIsAdmin(!!adminResponse?.ok);
+      if (adminResponse?.ok && supabase) {
+        const { data } = await supabase.from('products').select('*').not('id','like','\\_\\_%');
+        if (current === generation && data) setBooks(sanitizeBooks(data));
+      } else {
+        const catalog = await secureFetch('/api/products').then(r => r.ok ? r.json() : null);
+        if (current === generation && catalog?.products) setBooks(sanitizeBooks(catalog.products.map((p: any) => ({ ...productBooks.find(b => b.id === p.id), ...p }))));
       }
-    });
-
-    // Listen to changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session?.user) {
-        const email = session.user.email;
-        if (email) {
-          localStorage.setItem("immersation_user_email", email);
-          localStorage.setItem("immersation_login_type", "oauth");
-          setUserEmail(email);
-          setSystemMembers(prev => {
-            if (prev.some(m => m.email === email)) return prev;
-            return [...prev, {
-              email,
-              role: email === "dreammyhomee@gmail.com" ? "System Administrator" : "Active Thought Leader",
-              joined: new Date().toISOString().split("T")[0],
-              status: "Active",
-              regMethod: "Google Account"
-            }];
-          });
-          setShowGoogleModal(false);
-          setIsSigningIn(false);
-          if (email === "dreammyhomee@gmail.com") {
-            const allBookIds = books.map(b => b.id);
-            setUnlockedBookIds(allBookIds);
-            localStorage.setItem("immersation_unlocked_books", JSON.stringify(allBookIds));
-          }
-        }
-      } else if (event === "SIGNED_OUT") {
-        const loginType = localStorage.getItem("immersation_login_type");
-        if (loginType === "oauth") {
-          localStorage.removeItem("immersation_user_email");
-          localStorage.removeItem("immersation_login_type");
-          setUserEmail(null);
-        }
-      }
-    });
-
-    // Listen for popup auth success messages
-    const handleMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin && event.origin !== "https://immersation.com" && event.origin !== "https://www.immersation.com") return;
-      if (event.data?.type === "OAUTH_AUTH_SUCCESS") {
-        const email = event.data.email;
-        if (email) {
-          localStorage.setItem("immersation_user_email", email);
-          localStorage.setItem("immersation_login_type", "oauth");
-          setUserEmail(email);
-          setSystemMembers(prev => {
-            if (prev.some(m => m.email === email)) return prev;
-            return [...prev, {
-              email,
-              role: email === "dreammyhomee@gmail.com" ? "System Administrator" : "Active Thought Leader",
-              joined: new Date().toISOString().split("T")[0],
-              status: "Active",
-              regMethod: "Google Account"
-            }];
-          });
-          setShowGoogleModal(false);
-          setIsSigningIn(false);
-          if (email === "dreammyhomee@gmail.com") {
-            const allBookIds = books.map(b => b.id);
-            setUnlockedBookIds(allBookIds);
-            localStorage.setItem("immersation_unlocked_books", JSON.stringify(allBookIds));
-          }
-          // Refresh the session in the main window to ensure supabase client is authenticated
-          if (supabase) {
-            supabase.auth.getSession();
-          }
-        }
+      if (adminResponse?.ok) {
+        const response = await secureFetch('/api/admin/orders');
+        const data = await response.json();
+        if (current === generation && response.ok) setSystemTransactions((data.orders || []).map((o: any) => ({
+          id: o.id, email: o.customer_email, item: o.commerce_order_items.map((i: any) => i.title).join(', '),
+          amount: o.amount / 100, currency: o.currency, date: o.paid_at || o.created_at,
+          status: o.status === 'paid' ? 'Paid' : o.status, refundedAmount: o.refunded_amount / 100
+        })));
       }
     };
-    window.addEventListener("message", handleMessage);
-
-    return () => {
-      subscription.unsubscribe();
-      window.removeEventListener("message", handleMessage);
+    void refresh();
+    const subscription = supabase?.auth.onAuthStateChange(() => { setTimeout(() => void refresh(), 0); }).data.subscription;
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin === window.location.origin && event.data?.type === 'OAUTH_AUTH_SUCCESS') void refresh();
     };
-  }, [books]);
+    window.addEventListener('message', onMessage);
+    // Remove obsolete client credentials and fabricated purchase evidence, never read them as authority.
+    ['immersation_unlocked_books','immersation_transactions','immersation_api_settings','sendfox_api_key','immersation_user_email','immersation_login_type','immersation_books'].forEach(k => localStorage.removeItem(k));
+    return () => { generation++; subscription?.unsubscribe(); window.removeEventListener('message', onMessage); };
+  }, []);
+
+  useEffect(() => {
+    if (!window.opener || !supabase) return;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) { window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, window.location.origin); window.close(); }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   // Check for OAuth error in URL on mount
   useEffect(() => {
@@ -917,19 +694,10 @@ export default function App() {
     setCartOpen(true);
 
     try {
-      const res = await fetch(`/api/verify-session?session_id=${sessionId}`);
+      const res = await secureFetch(`/api/verify-session?session_id=${encodeURIComponent(sessionId)}`);
       const data = await res.json();
       if (data.paid && data.books) {
-        setUnlockedBookIds((prev) => {
-          const next = [...prev];
-          data.books.forEach((id: string) => {
-            if (!next.includes(id)) {
-              next.push(id);
-            }
-          });
-          return next;
-        });
-        
+        setUnlockedBookIds(await loadLibrary());
         // Reconstruct cart items or receipt items
         const allAvailableBooks = books && books.length > 0 ? books : productBooks;
         let items = data.books.map((id: string) => 
@@ -951,13 +719,13 @@ export default function App() {
         if (audioEngineRef.current) audioEngineRef.current.playChime();
       } else {
         setCheckoutStep("cart");
-        alert(lang === "en" 
-          ? "Your payment could not be verified by Stripe. Please contact support." 
-          : "Stripe 无法验证您的支付状态。请重试或联系客服。");
+        setPaymentError(data.message || (data.status === 'expired' ? 'Checkout expired. Please start again.' : data.status === 'failed' ? 'Payment was declined or failed. Please try again.' : 'Payment confirmation is pending. Refresh this page to check again; do not pay again.'));
+
       }
     } catch (err) {
       console.error("Error verifying Stripe session:", err);
       setCheckoutStep("cart");
+      setPaymentError("Connection interrupted. Refresh to check payment confirmation; do not pay again.");
     }
   };
 
@@ -970,6 +738,8 @@ export default function App() {
     if (checkoutSuccess && sessionId) {
       verifyAndCompleteSession(sessionId);
     } else if (params.get("checkout_canceled") === "true") {
+      checkoutAttempt.current = null;
+      setPaymentError("Payment canceled. Your cart is ready when you are.");
       setCheckoutStep("cart");
       setCartOpen(true);
       // Clean URL query parameters
@@ -979,40 +749,33 @@ export default function App() {
   }, [lang]);
 
   const handleStripeCheckout = async () => {
+    if (checkoutBusy.current) return;
+    checkoutBusy.current = true;
+    setPaymentError(null);
+    const signature = JSON.stringify(cartItems.map(i => i.id).sort());
+    if (!checkoutAttempt.current || checkoutAttempt.current.signature !== signature) {
+      checkoutAttempt.current = { signature, key: crypto.randomUUID() };
+    }
     setIsRedirectingToStripe(true);
     setCheckoutStep("processing");
     if (audioEngineRef.current) audioEngineRef.current.playChime();
 
     try {
-      const response = await fetch("/api/create-checkout-session", {
+      const context = await secureFetch('/api/checkout-context');
+      if (!context.ok) throw new Error((await context.json()).message || 'Secure checkout is temporarily unavailable.');
+      const response = await secureFetch("/api/create-checkout-session", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Idempotency-Key": checkoutAttempt.current.key,
         },
         body: JSON.stringify({
-          items: cartItems,
-          lang,
-          email: userEmail || undefined,
-          originUrl: window.location.href,
+          items: cartItems.map(i => ({ productId: i.id, quantity: 1 })),
         }),
       });
 
       const data = await response.json();
-      if (data.url) {
-        // If simulated or local sandbox checkout URL, verify directly in-app without full page reload
-        if (data.simulated || data.url.includes("checkout_success")) {
-          try {
-            const urlObj = new URL(data.url, window.location.href);
-            const sessionId = urlObj.searchParams.get("session_id");
-            if (sessionId) {
-              await verifyAndCompleteSession(sessionId);
-              return;
-            }
-          } catch (e) {
-            console.error("Error parsing sandbox URL:", e);
-          }
-        }
-
+      if (response.ok && data.url && new URL(data.url).hostname === "checkout.stripe.com") {
         // For real Stripe hosted checkout:
         // Check if running inside an iframe (e.g. AI Studio preview)
         const isIframe = window.top !== window;
@@ -1034,7 +797,8 @@ export default function App() {
           window.location.href = data.url;
         }
       } else {
-        throw new Error(data.error || "Failed to create checkout session");
+        if (data.code === "CHECKOUT_CLOSED") checkoutAttempt.current = null;
+        throw new Error(data.message || "Secure checkout is temporarily unavailable.");
       }
     } catch (error: any) {
       console.error("Stripe Checkout Error:", error);
@@ -1043,14 +807,10 @@ export default function App() {
         : `支付网关连接失败: ${error.message}`);
       setCheckoutStep("cart");
     } finally {
+      checkoutBusy.current = false;
       setIsRedirectingToStripe(false);
     }
   };
-
-  // Save unlocked books to localStorage
-  useEffect(() => {
-    localStorage.setItem("immersation_unlocked_books", JSON.stringify(unlockedBookIds));
-  }, [unlockedBookIds]);
 
   // Reset checkout step when cart closes
   useEffect(() => {
@@ -2031,6 +1791,7 @@ export default function App() {
                 </button>
               </div>
 
+              {paymentError && <div role="alert" className="mx-6 mt-4 p-3 border border-amber-300 bg-amber-50 text-sm">{paymentError}</div>}
               {/* Content */}
               <div className="flex-1 overflow-y-auto px-6 py-6 flex flex-col justify-between">
                 {checkoutStep === "success" ? (
@@ -2196,8 +1957,8 @@ export default function App() {
                         <ShieldCheck className="w-4 h-4 text-[#8B5A44]" />
                         <span className="text-[10px] font-sans">
                           {lang === "en" 
-                            ? "SSL Secure 256-bit Connection" 
-                            : "SSL 256位高能安全加密信道"}
+                            ? "Payment details are entered on Stripe"
+                            : "支付信息将在 Stripe 页面中填写"}
                         </span>
                       </div>
 
@@ -2229,17 +1990,17 @@ export default function App() {
                             <span>{lang === "en" ? "Direct Stripe Gateway" : "Stripe 官方安全网关"}</span>
                           </span>
                           <span className="font-mono text-[9px] text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-1.5 py-0.5 rounded-xs">
-                            {lang === "en" ? "LIVE SSL ACTIVE" : "实时安全通道"}
+                            {lang === "en" ? "HOSTED CHECKOUT" : "托管结账页面"}
                           </span>
                         </div>
                         <p className="font-sans text-[11px] text-[#1C1C1C]/75 leading-relaxed mb-2.5">
                           {lang === "en"
-                            ? "Worldwide checkout supporting international credit and debit cards. Postal codes and currency conversions are handled automatically by Stripe for all countries."
-                            : "支持全球信用卡与借记卡。由 Stripe 官方处理跨国支付、汇率换算与邮编适配，即时解锁并交付数字著作。"}
+                            ? "Checkout availability is checked when you continue. Available payment methods appear on Stripe’s secure page."
+                            : "继续操作时将检查结账服务。可用支付方式会在 Stripe 安全页面中显示，付款确认后授予访问权限。"}
                         </p>
                         <div className="flex items-center justify-between text-[9px] font-mono text-stone-500 pt-2 border-t border-[#D8D2C6]/40">
                           <span>{lang === "en" ? "Accepted:" : "支持方式:"}</span>
-                          <span className="text-stone-700 font-semibold tracking-wider">Visa • Mastercard • Amex • Apple Pay • Google Pay</span>
+                          <span className="text-stone-700 font-semibold tracking-wider">Shown at checkout</span>
                         </div>
                       </div>
                     </div>
@@ -2323,17 +2084,17 @@ export default function App() {
                       {/* Signed-in profile details */}
                       <div className="border-b border-[#D8D2C6]/50 pb-6 mb-6 text-left">
                         <span className="text-[9px] font-display uppercase tracking-widest text-[#8B5A44] block mb-1">
-                          {userEmail === "dreammyhomee@gmail.com" 
+                          {isAdmin
                             ? (lang === "en" ? "SYSTEM ADMINISTRATOR" : "系统超级管理员")
                             : (lang === "en" ? "ACTIVE THOUGHT LEADER" : "活跃思想领袖")}
                         </span>
                         <h4 className="font-serif text-lg font-normal text-[#1A2F24] truncate">
-                          {userEmail === "dreammyhomee@gmail.com" ? "support@immersation.com" : userEmail}
+                          {isAdmin ? "support@immersation.com" : userEmail}
                         </h4>
                         <div className="flex items-center gap-2 mt-2">
-                          <span className={`w-2 h-2 rounded-full animate-pulse ${userEmail === "dreammyhomee@gmail.com" ? "bg-red-600" : "bg-[#8B5A44]"}`}></span>
+                          <span className={`w-2 h-2 rounded-full animate-pulse ${isAdmin ? "bg-red-600" : "bg-[#8B5A44]"}`}></span>
                           <span className="text-[10px] font-display uppercase tracking-wider text-[#1C1C1C]/60">
-                            {userEmail === "dreammyhomee@gmail.com" 
+                            {isAdmin
                               ? (lang === "en" ? "Membership: Top-Tier Sovereign Admin" : "会员身份：终极主权系统管理员")
                               : (lang === "en" ? "Membership: Founding Thinker" : "会员身份：创始思想者")}
                           </span>
@@ -2341,7 +2102,7 @@ export default function App() {
                       </div>
 
                       {/* Admin Tab Selector */}
-                      {userEmail === "dreammyhomee@gmail.com" && (
+                      {isAdmin && (
                         <div className="flex border-b border-[#D8D2C6]/30 mb-6 font-display text-[9px] tracking-widest uppercase font-bold">
                           <button
                             type="button"
@@ -2371,7 +2132,7 @@ export default function App() {
                       )}
 
                       {/* View rendering based on adminTab */}
-                      {userEmail === "dreammyhomee@gmail.com" && adminTab !== "library" ? (
+                      {isAdmin && adminTab !== "library" ? (
                         <div className="space-y-4 animate-fade-in text-left">
                           <button
                             type="button"
@@ -2419,9 +2180,9 @@ export default function App() {
                               {/* Stat Cards */}
                               <div className="grid grid-cols-2 gap-3">
                                 <div className="bg-[#1A2F24]/5 border border-[#D8D2C6]/40 p-3 rounded-sm">
-                                  <span className="text-[9px] font-display text-stone-500 uppercase tracking-wider block">{lang === "en" ? "Total Revenue" : "流水总额"}</span>
+                                  <span className="text-[9px] font-display text-stone-500 uppercase tracking-wider block">{lang === "en" ? "Unrefunded payments (latest 200)" : "未退款付款（最近 200 笔）"}</span>
                                   <span className="text-sm font-mono font-bold text-[#8B5A44] block mt-0.5">
-                                    ${systemTransactions.reduce((acc, tx) => acc + tx.amount, 0).toFixed(2)}
+                                    ${systemTransactions.filter(tx => tx.status === "Paid").reduce((acc, tx) => acc + tx.amount, 0).toFixed(2)}
                                   </span>
                                 </div>
                                 <div className="bg-[#1A2F24]/5 border border-[#D8D2C6]/40 p-3 rounded-sm">
@@ -2432,33 +2193,8 @@ export default function App() {
                                 </div>
                               </div>
 
-                              {/* Stripe config */}
-                              <div className="bg-[#E8DDCF]/25 border border-[#D8D2C6]/50 rounded-sm p-4 space-y-3 text-left">
-                                <span className="text-[10px] font-bold text-[#8B5A44] uppercase tracking-wider block">
-                                  {lang === "en" ? "Gateway Channel Configuration" : "Stripe 交易通道控制"}
-                                </span>
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="flex-1">
-                                    <span className="text-xs font-serif font-bold text-[#1A2F24] block">
-                                      {isLiveCheckout ? (lang === "en" ? "Stripe Live Mode" : "Stripe 实时交易模式") : (lang === "en" ? "Sandbox Simulation" : "安全沙盒模拟")}
-                                    </span>
-                                    <span className="text-[9px] text-stone-500 block leading-relaxed mt-0.5">
-                                      {isLiveCheckout 
-                                        ? (lang === "en" ? "Live mode. STRIPE_SECRET_KEY enforced in production." : "全站已强制切入 Stripe 实时交易总线。")
-                                        : (lang === "en" ? "Uses Stripe sandbox with 4242 testing card credentials." : "为全站客户启用安全沙盒账单模拟，支持 4242 测试卡。")}
-                                    </span>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setIsLiveCheckout(!isLiveCheckout);
-                                      if (audioEngineRef.current) audioEngineRef.current.playChime();
-                                    }}
-                                    className={`w-10 h-5 rounded-full p-0.5 transition-colors duration-300 relative flex-shrink-0 ${isLiveCheckout ? "bg-[#1A2F24]" : "bg-stone-300"}`}
-                                  >
-                                    <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${isLiveCheckout ? "translate-x-5" : "translate-x-0"}`}></div>
-                                  </button>
-                                </div>
+                              <div className="border border-[#D8D2C6] rounded-sm p-4 text-xs">
+                                {lang === 'en' ? 'Stripe mode is controlled by protected deployment settings. Open the dashboard for payment diagnostics.' : 'Stripe 模式由安全的部署环境配置控制。请在管理面板查看支付诊断。'}
                               </div>
 
                               {/* Book Control */}
@@ -2473,25 +2209,22 @@ export default function App() {
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      const allBookIds = books.map(b => b.id);
-                                      setUnlockedBookIds(allBookIds);
-                                      localStorage.setItem("immersation_unlocked_books", JSON.stringify(allBookIds));
+                                      loadLibrary().then(setUnlockedBookIds);
                                       if (audioEngineRef.current) audioEngineRef.current.playChime();
                                     }}
                                     className="flex-1 bg-[#1A2F24] hover:bg-[#8B5A44] text-[#F4F1EB] text-[9px] font-display uppercase tracking-wider py-2 rounded-xs transition-colors"
                                   >
-                                    {lang === "en" ? "Unlock All" : "一键解锁全部"}
+                                    {lang === "en" ? "Refresh Access" : "刷新权限"}
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      setUnlockedBookIds(["starter-kit"]);
-                                      localStorage.setItem("immersation_unlocked_books", JSON.stringify(["starter-kit"]));
+                                      loadLibrary().then(setUnlockedBookIds);
                                       if (audioEngineRef.current) audioEngineRef.current.playChime();
                                     }}
                                     className="flex-1 bg-white hover:bg-stone-50 text-red-700 border border-red-200 text-[9px] font-display uppercase tracking-wider py-2 rounded-xs transition-colors"
                                   >
-                                    {lang === "en" ? "Reset Library" : "重置所有权"}
+                                    {lang === "en" ? "Reload Library" : "刷新书库"}
                                   </button>
                                 </div>
                               </div>
@@ -4409,7 +4142,7 @@ export default function App() {
           }}
         />
       ) : activeView === "admin" ? (
-        userEmail === "dreammyhomee@gmail.com" ? (
+        isAdmin ? (
           <AdminDashboard
             lang={lang}
             userEmail={userEmail}
@@ -4669,126 +4402,15 @@ export default function App() {
                   </svg>
                   <span className="text-[#1a73e8]">{lang === "en" ? "Continue with Google (Real Auth)" : "通过 Google 账号登录 (真实认证)"}</span>
                 </button>
-              ) : (
-                <div className="space-y-3 mb-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setGoogleEmailInput("dreammyhomee@gmail.com");
-                      setGooglePasswordInput("password123");
-                      setGoogleAuthError("");
-                    }}
-                    className="w-full flex items-center justify-center gap-3 bg-stone-50 border border-stone-200 hover:border-[#8B5A44] font-sans text-xs font-semibold py-3 px-4 rounded-sm tracking-wide transition-all cursor-pointer"
-                  >
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" width="18" height="18" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
-                      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
-                      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05" />
-                      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335" />
-                    </svg>
-                    <span className="text-stone-700">{lang === "en" ? "Demo Admin Login (dreammyhomee)" : "一键填入演示管理员账号"}</span>
-                  </button>
-                  <div className="p-3 bg-[#F4F1EB]/80 border border-stone-200/50 rounded-xs text-stone-500 font-sans text-[10px] leading-relaxed">
-                    {lang === "en" ? (
-                      <span>
-                        💡 <strong>Supabase is not configured yet.</strong> To enable real, secure Google Sign-In, please configure <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> in the settings.
-                      </span>
-                    ) : (
-                      <span>
-                        💡 <strong>尚未在环境中配置 Supabase。</strong>要启用真实的、安全的 Google 快捷登录，请在设置中配置您的 <code>VITE_SUPABASE_URL</code> 和 <code>VITE_SUPABASE_ANON_KEY</code> 环境变量。
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Secure Input form */}
-              <div className="space-y-4 pt-1">
-                <div>
-                  <label className="block text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-1">
-                    {lang === "en" ? "Google Account Email" : "Google 账号邮箱"}
-                  </label>
-                  <input
-                    type="email"
-                    value={googleEmailInput}
-                    onChange={(e) => {
-                      setGoogleEmailInput(e.target.value);
-                      setGoogleAuthError("");
-                    }}
-                    placeholder="your.google.account@gmail.com"
-                    className="w-full bg-white border border-stone-200 focus:border-[#8B5A44] focus:outline-none rounded-sm py-3 px-4 text-xs font-sans text-stone-800"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-1">
-                    {lang === "en" ? "Google Account Password" : "输入 Google 密码"}
-                  </label>
-                  <input
-                    type="password"
-                    value={googlePasswordInput}
-                    onChange={(e) => setGooglePasswordInput(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full bg-white border border-stone-200 focus:border-[#8B5A44] focus:outline-none rounded-sm py-3 px-4 text-xs font-sans text-stone-800"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Bottom: actions */}
-            <div className="flex justify-between items-center border-t border-stone-100 pt-5">
-              <span className="text-[10px] text-stone-400 font-medium">
-                {lang === "en" ? "Google One-Tap Auth" : "Google 快捷认证"}
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!googleEmailInput) {
-                    setGoogleAuthError(lang === "en" ? "Please enter a valid Google Account email." : "请输入有效的 Google 账号邮箱。");
-                    return;
-                  }
-                  if (!googleEmailInput.includes("@")) {
-                    setGoogleAuthError(lang === "en" ? "Invalid email structure. Must be a valid Google Account." : "邮箱格式不正确。请使用有效的 Google 账号。");
-                    return;
-                  }
-                  if (!googlePasswordInput || googlePasswordInput.length < 6) {
-                    setGoogleAuthError(lang === "en" ? "Please enter your Google Account password (minimum 6 characters)." : "请输入您的 Google 账号密码（至少 6 位字符）。");
-                    return;
-                  }
-                  setIsSigningIn(true);
-                  setShowGoogleModal(false);
-                  setTimeout(() => {
-                    localStorage.setItem("immersation_user_email", googleEmailInput);
-                    localStorage.setItem("immersation_login_type", "manual");
-                    setUserEmail(googleEmailInput);
-                    setSystemMembers(prev => {
-                      if (prev.some(m => m.email === googleEmailInput)) return prev;
-                      return [...prev, {
-                        email: googleEmailInput,
-                        role: googleEmailInput === "dreammyhomee@gmail.com" ? "System Administrator" : "Active Thought Leader",
-                        joined: new Date().toISOString().split("T")[0],
-                        status: "Active",
-                        regMethod: "Google Account"
-                      }];
-                    });
-                    setIsSigningIn(false);
-                    if (googleEmailInput === "dreammyhomee@gmail.com") {
-                      // If admin logging in, unlock all digital volumes immediately to represent "full access"!
-                      const allBookIds = books.map(b => b.id);
-                      setUnlockedBookIds(allBookIds);
-                      localStorage.setItem("immersation_unlocked_books", JSON.stringify(allBookIds));
-                      setAdminTab("overview");
-                    } else {
-                      setAdminTab("library");
-                    }
-                    if (audioEngineRef.current) audioEngineRef.current.playChime();
-                  }, 1200);
-                }}
-                className="bg-[#1a73e8] hover:bg-[#1557b0] text-white text-xs font-semibold py-2.5 px-6 rounded-sm tracking-wide transition-all hover:shadow-md cursor-pointer flex items-center gap-1.5"
-              >
-                <span>{lang === "en" ? "Sign In" : "确定登录"}</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
+              ) : <p>Secure sign-in is temporarily unavailable.</p>}
+              <input type="email" value={googleEmailInput} onChange={e => setGoogleEmailInput(e.target.value)} placeholder="Email for a secure sign-in link" className="w-full border p-3" />
+              <button disabled={!supabase || isSigningIn} onClick={async () => {
+                if (!supabase) return;
+                setIsSigningIn(true);
+                const { error } = await supabase.auth.signInWithOtp({ email: googleEmailInput, options: { emailRedirectTo: window.location.origin } });
+                setGoogleAuthError(error ? 'Unable to send sign-in link. Please try again.' : 'Check your email for your secure sign-in link.');
+                setIsSigningIn(false);
+              }} className="w-full border p-3">Send secure sign-in link</button>
             </div>
           </div>
         </div>

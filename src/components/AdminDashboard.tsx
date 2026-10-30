@@ -1,3 +1,4 @@
+import { secureFetch } from "../lib/security-api";
 import React, { useState, useEffect } from "react";
 import jsPDF from "jspdf";
 import { supabase } from "../lib/supabase";
@@ -208,8 +209,8 @@ interface AdminDashboardProps {
   userEmail: string | null;
   systemMembers: Array<{ email: string; role: string; joined: string; status: string; regMethod?: string }>;
   setSystemMembers: React.Dispatch<React.SetStateAction<Array<{ email: string; role: string; joined: string; status: string; regMethod?: string }>>>;
-  systemTransactions: Array<{ id: string; email: string; item: string; amount: number; date: string; status: string }>;
-  setSystemTransactions: React.Dispatch<React.SetStateAction<Array<{ id: string; email: string; item: string; amount: number; date: string; status: string }>>>;
+  systemTransactions: Array<{ id: string; email: string; item: string; amount: number; date: string; status: string; currency?: string; refundedAmount?: number }>;
+  setSystemTransactions: React.Dispatch<React.SetStateAction<Array<{ id: string; email: string; item: string; amount: number; date: string; status: string; currency?: string; refundedAmount?: number }>>>;
   books: any[];
   setBooks: React.Dispatch<React.SetStateAction<any[]>>;
   articles: any[];
@@ -320,147 +321,46 @@ export default function AdminDashboard({
 
   const [auditLogs, setAuditLogs] = useState<any[]>(() => {
     const saved = localStorage.getItem("immersation_audit_logs");
-    return saved ? JSON.parse(saved) : [
-      { id: "LOG-1", action: "Admin Log In", user: "dreammyhomee@gmail.com", date: "2026-07-08 20:37:25", details: "Secure admin token granted successfully." },
-      { id: "LOG-2", action: "Toggle Stripe Live Mode", user: "dreammyhomee@gmail.com", date: "2026-07-08 20:38:00", details: "Switched global gateway mapping to Live mode." }
-    ];
+    return [];
   });
 
-  const [apiSettings, setApiSettings] = useState(() => {
-    const saved = localStorage.getItem("immersation_api_settings");
-    return saved ? JSON.parse(saved) : {
-      wpUrl: "https://immersation.com/wp-json",
-      wpAppPassword: "•••• •••• •••• •••• ••••",
-      stripePublishable: "pk_live_51P7...",
-      stripeSecret: "sk_live_51P7...",
-      stripeWebhookSecret: "whsec_...",
-      sendfoxToken: "sf_token_71e...",
-      defaultListId: "Body Notes"
-    };
-  });
-
-  const DEFAULT_SENDFOX_PAT = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiI5MzciLCJqdGkiOiIxNmQ5ZjI5OTdkMGJlNjcyNTgwZjdjMmMxMTYyYzA4NDVlMzEzZmQyNzIxZTdiZmQyYjAxN2E3YjRjNWU2YmIwNGY2ZDA3ZDY1MjFjMGZhMiIsImlhdCI6MTc4NjA3Njg2Ny4wNjMxNzksIm5iZiI6MTc4NjA3Njg2Ny4wNjMxOCwiZXhwIjo0OTQxNzUwNDY3LjA0NzYsInN1YiI6IjIwMjg3MiIsInNjb3BlcyI6W119.C3UEfhebjll-R1200AdFElO_iAEUnNOXn_VQUr-4mOM2EYmSK4xCi3fF8u-3oSewqujdVACvRd-_hdatVfC6NlUiqXgNtybvo7EQJKqtAdtvwD9irLYcQOZz9aIdVIL2dCiG2SVOpcP-T97HeuHT6UhCB0DIUxM97MnxHdcULC1j4j6nhmi02Aj2ysJLXJasnqNmzjRpjBTYVE56tIp_wwKKITS8_936_XzxrJtd4NDS22-q0A7wDp5N1PvvsXxCvw4wvr2gr8bgIb9DL09wIX2-NBjfy2Eas6jbFAjlfmesCRPfyBwJuJq2GlfDnowALllQSWv_uA_rZx45E4ci92BUKUUu1_Yh239q2Q_zlvi4I1d5ZiQHiAKMD328dVt5WC9ICYMdxgX70_FHvoJx09eKemXrzsrwhfGOeYywZvc2vuMizF5w8yepEUWApV49S1YRYCxYbCdcpwymN92TC5lilCRomq2WvdipW8ICTP9Omjb8nHmIlIvmaE_ORFelI3_UlRD3CTuqkW4Rg0rBRRwS45zovpaNZem54i-lwTPplp06MLRJvObgPZomvutSFv8vi7tkXj6EiNpfSW2dE6YMLOLLiT95e7WW7CNcqwUgfFn9LEuUWHX83bIB-nHc1Z4eU7cgbAw30q61YECwXOpb12dpCmYkbUnUjT_hmvs";
-
-  const [sendFoxApiKey, setSendFoxApiKey] = useState<string>(() => {
-    const saved = localStorage.getItem("sendfox_api_key");
-    if (saved && saved.trim()) return saved;
-    localStorage.setItem("sendfox_api_key", DEFAULT_SENDFOX_PAT);
-    return DEFAULT_SENDFOX_PAT;
-  });
+  const [apiSettings, setApiSettings] = useState({ wpUrl: "https://immersation.com/wp-json", wpAppPassword: "", sendfoxToken: "", defaultListId: "Body Notes" });
+  const [sendFoxApiKey, setSendFoxApiKey] = useState("");
   const [testingSendFox, setTestingSendFox] = useState(false);
   const [broadcastingId, setBroadcastingId] = useState<string | null>(null);
 
   const [stripeGatewayStatus, setStripeGatewayStatus] = useState<{ configured: boolean; mode: string; prefix: string }>({
-    configured: true,
-    mode: "live",
+    configured: false,
+    mode: "unavailable",
     prefix: ""
   });
-  const [isSavingStripeKeys, setIsSavingStripeKeys] = useState(false);
-  const [stripeSaveFeedback, setStripeSaveFeedback] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/health")
+    secureFetch("/api/admin/payment-health")
       .then(res => res.json())
       .then(data => {
         if (data) {
           setStripeGatewayStatus({
-            configured: !!data.stripe_configured,
-            mode: data.stripe_mode || (data.stripe_configured ? "live" : "none"),
-            prefix: data.key_prefix || ""
+            configured: !!data.configured && !!data.stripe_reachable && !!data.persistence_healthy,
+            mode: data.mode || "unavailable",
+            prefix: ""
           });
         }
       })
       .catch(() => {});
   }, []);
 
-  const handleSaveStripeConfiguration = async () => {
-    setIsSavingStripeKeys(true);
-    setStripeSaveFeedback(null);
-    localStorage.setItem("immersation_api_settings", JSON.stringify(apiSettings));
-
-    const secretKey = apiSettings.stripeSecret ? apiSettings.stripeSecret.trim() : "";
-    if (secretKey && (secretKey.startsWith("sk_live_") || secretKey.startsWith("sk_test_"))) {
-      try {
-        const res = await fetch("/api/admin/set-stripe-keys", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ stripeSecret: secretKey })
-        });
-        const data = await res.json();
-        if (res.ok && data.success) {
-          setStripeGatewayStatus({
-            configured: true,
-            mode: data.stripe_mode,
-            prefix: data.key_prefix || secretKey.substring(0, 8) + "..."
-          });
-          setStripeSaveFeedback(
-            lang === "en"
-              ? `Stripe key successfully activated in ${data.stripe_mode.toUpperCase()} mode!`
-              : `Stripe 秘钥已成功激活 (${data.stripe_mode.toUpperCase()} 模式)！`
-          );
-          addAuditLog("Save Stripe Keys", `Activated Stripe key in ${data.stripe_mode} mode.`);
-        } else {
-          setStripeSaveFeedback(`Error: ${data.error || "Failed to update Stripe server key"}`);
-        }
-      } catch (err: any) {
-        setStripeSaveFeedback(`Network error: ${err.message || String(err)}`);
-      }
-    } else {
-      setStripeSaveFeedback(
-        lang === "en"
-          ? "Settings saved to local storage."
-          : "设置已保存至本地。"
-      );
-      addAuditLog("Save Stripe Keys", "Updated global Stripe keys in local store.");
-    }
-    setIsSavingStripeKeys(false);
-  };
-
-  useEffect(() => {
-    if (sendFoxApiKey) {
-      localStorage.setItem("sendfox_api_key", sendFoxApiKey);
-    }
-  }, [sendFoxApiKey]);
-
   const handleTestSendFoxConnection = async () => {
-    const keyToTest = sendFoxApiKey.trim() || localStorage.getItem("sendfox_api_key") || "";
-    if (!keyToTest) {
-      alert("Please enter your SendFox Personal Access Token first.");
-      return;
-    }
     setTestingSendFox(true);
     try {
-      const res = await fetch("https://api.sendfox.com/lists", {
-        headers: { "Authorization": `Bearer ${keyToTest}` }
-      });
-      if (res.ok) {
-        const data = await res.json().catch(() => null);
-        const listCount = Array.isArray(data?.data) ? data.data.length : (Array.isArray(data) ? data.length : 0);
-        alert(`✅ SendFox Connection Successful!\nYour API Key is valid and connected to ${listCount} list(s) in SendFox.`);
-      } else {
-        const errText = await res.text();
-        alert(`❌ SendFox API Error (Status ${res.status}):\n${errText.slice(0, 200)}`);
-      }
-    } catch (e: any) {
-      alert(`❌ Connection Failed: ${e?.message || "Network error"}`);
-    } finally {
-      setTestingSendFox(false);
-    }
+      const response = await secureFetch('/api/admin/sendfox-health');
+      const result = await response.json();
+      alert(result.connected ? 'SendFox is reachable.' : 'Configure SENDFOX_API_KEY in protected deployment settings.');
+    } catch { alert('SendFox is temporarily unavailable.'); }
+    finally { setTestingSendFox(false); }
   };
 
   const handleDirectBroadcast = async (nl: any) => {
-    let apiKeyToUse = sendFoxApiKey.trim() || localStorage.getItem("sendfox_api_key") || "";
-    if (!apiKeyToUse) {
-      const inputKey = prompt("Please enter your SendFox Personal Access Token (API Key) to trigger live broadcast:\n(Get your token at https://sendfox.com/account)");
-      if (!inputKey || !inputKey.trim()) {
-        alert("SendFox API Key is required to broadcast.");
-        return;
-      }
-      apiKeyToUse = inputKey.trim();
-      setSendFoxApiKey(apiKeyToUse);
-      localStorage.setItem("sendfox_api_key", apiKeyToUse);
-    }
-
     const tags = Array.isArray(nl.sendFoxTags) && nl.sendFoxTags.length > 0 
       ? nl.sendFoxTags 
       : (nl.listId ? [nl.listId.toLowerCase().replace(" notes", "").trim()] : [nl.pillar || "tool"]);
@@ -507,11 +407,10 @@ export default function AdminDashboard({
       : `${baseUrl}/newsletter`;
 
     try {
-      const res = await fetch("/api/broadcast-sendfox", {
+      const res = await secureFetch("/api/broadcast-sendfox", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          apiKey: apiKeyToUse,
           subject: resolvedSubject,
           previewText: resolvedPreview,
           content: resolvedContent,
@@ -693,16 +592,16 @@ export default function AdminDashboard({
     doc.setDrawColor("#D8D2C6");
     doc.line(48, 300, 547, 300);
     doc.setFont("helvetica", "bold");
-    doc.text("TOTAL PAID", 380, 322);
+    doc.text(tx.status === "Paid" ? "TOTAL PAID" : "ORDER AMOUNT", 380, 322);
     doc.setTextColor(rust);
-    doc.text(`${Number(tx.amount).toFixed(2)}`, 480, 322);
+    doc.text(`${(tx.currency || "usd").toUpperCase()} ${Number(tx.amount).toFixed(2)}`, 450, 322);
 
     // Footer
     doc.setTextColor("#7a7974");
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     doc.text(
-      "This receipt confirms your purchase from Immersation, a personal intelligence media",
+      tx.status === "Paid" ? "Verified paid order from Immersation." : "Order summary. See payment status above; this is not a paid receipt.",
       48, 760
     );
     doc.text("and digital publishing brand.", 48, 774);
@@ -732,7 +631,7 @@ export default function AdminDashboard({
       const dateStr = d.toISOString().split("T")[0];
       
       const txs = systemTransactions.filter(
-        (t) => (t.status === "Successful" || t.status === "Paid") && t.date === dateStr
+        (t) => (t.status === "Successful" || t.status === "Paid") && t.date.slice(0,10) === dateStr
       );
       const amount = txs.reduce((sum, t) => sum + Number(t.amount || 0), 0);
       const orders = txs.length;
@@ -754,7 +653,7 @@ export default function AdminDashboard({
   const grossRevenueToday = React.useMemo(() => {
     const todayStr = new Date().toISOString().split("T")[0];
     const todayTxs = systemTransactions.filter(
-      (t) => (t.status === "Successful" || t.status === "Paid") && t.date === todayStr
+      (t) => (t.status === "Successful" || t.status === "Paid") && t.date.slice(0,10) === todayStr
     );
     return todayTxs.reduce((sum, t) => sum + Number(t.amount || 0), 0);
   }, [systemTransactions]);
@@ -767,12 +666,12 @@ export default function AdminDashboard({
     const yesterdayStr = yesterday.toISOString().split("T")[0];
     
     const todayTxs = systemTransactions.filter(
-      (t) => (t.status === "Successful" || t.status === "Paid") && t.date === todayStr
+      (t) => (t.status === "Successful" || t.status === "Paid") && t.date.slice(0,10) === todayStr
     );
     const todayAmount = todayTxs.reduce((sum, t) => sum + Number(t.amount || 0), 0);
     
     const yesterdayTxs = systemTransactions.filter(
-      (t) => (t.status === "Successful" || t.status === "Paid") && t.date === yesterdayStr
+      (t) => (t.status === "Successful" || t.status === "Paid") && t.date.slice(0,10) === yesterdayStr
     );
     const yesterdayAmount = yesterdayTxs.reduce((sum, t) => sum + Number(t.amount || 0), 0);
     
@@ -1119,7 +1018,7 @@ export default function AdminDashboard({
     setEbEpubConversionStatus(null);
     try {
       const targetProduct = books.find((b: any) => b.id === productId) || editingProduct || editingEbook;
-      const response = await fetch("/api/convert-epub", {
+      const response = await secureFetch("/api/convert-epub", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -1472,7 +1371,7 @@ export default function AdminDashboard({
     ).trim();
     let initialHtml5 = rawHtml5;
     if (!initialHtml5 && (eb.id === "c15-healthy-aging" || eb.id === "longevity-reset")) {
-      initialHtml5 = "https://animated-frangollo-61bd01.netlify.app/";
+      initialHtml5 = "";
     } else if (!initialHtml5 && eb.epubSourceUrl && typeof eb.epubSourceUrl === "string") {
       const epub = eb.epubSourceUrl.trim();
       if (epub.toLowerCase().endsWith(".epub")) {
@@ -1572,7 +1471,7 @@ export default function AdminDashboard({
     }
 
     // Sync to API (AI Studio Codebase) - do this AFTER Supabase so HMR doesn't cancel Supabase
-    fetch("/api/sync-articles", {
+    secureFetch("/api/sync-articles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ articles: newArticles })
@@ -1619,20 +1518,7 @@ export default function AdminDashboard({
 
     let msgSuffix = "";
     if (nlSendMode.includes("Send via SendFox now")) {
-      let apiKeyToUse = sendFoxApiKey.trim() || localStorage.getItem("sendfox_api_key") || "";
-      if (!apiKeyToUse) {
-        const inputKey = prompt("Please enter your SendFox Personal Access Token (API Key) to trigger live broadcast:\n(Get your token at https://sendfox.com/account)");
-        if (inputKey && inputKey.trim()) {
-          apiKeyToUse = inputKey.trim();
-          setSendFoxApiKey(apiKeyToUse);
-          localStorage.setItem("sendfox_api_key", apiKeyToUse);
-        } else {
-          alert("SendFox Personal Access Token is required for live broadcast. The campaign has been saved as a Draft.");
-          payload.status = "Draft";
-        }
-      }
-
-      if (apiKeyToUse) {
+      {
         try {
           const origin = typeof window !== "undefined" ? window.location.origin : "https://immersation.com";
           const baseUrl = (!origin || origin.includes("aistudio.google.com") || origin.includes("ais-dev-") || origin.includes("ais-pre-") || origin.includes("localhost") || origin.includes("127.0.0.1") || origin.includes("run.app")) 
@@ -1643,12 +1529,11 @@ export default function AdminDashboard({
             ? `${baseUrl}/newsletter?slug=${encodeURIComponent(issueSlugOrId)}`
             : `${baseUrl}/newsletter`;
 
-          const broadcastRes = await fetch("/api/broadcast-sendfox", {
+          const broadcastRes = await secureFetch("/api/broadcast-sendfox", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              apiKey: apiKeyToUse,
-              subject: payload.emailSubject,
+                  subject: payload.emailSubject,
               previewText: payload.previewText,
               content: payload.content.en || payload.content.zh,
               sendFoxTags: nlSendFoxTags,
@@ -2099,7 +1984,7 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                 </div>
                 <div className="flex items-center gap-2 bg-[#E8DDCF]/35 border border-[#D8D2C6]/40 px-3 py-2 rounded-sm text-xs font-mono">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 animate-pulse"></span>
-                  <span className="text-emerald-800 font-bold">Stripe & SendFox Webhooks Active</span>
+                  <span className="text-emerald-800 font-bold">Webhook delivery requires acceptance checks</span>
                 </div>
               </div>
 
@@ -2107,7 +1992,7 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="bg-[#1A2F24]/5 border border-[#D8D2C6]/40 p-4 rounded-sm">
                   <div className="flex justify-between text-stone-500 text-[10px] font-display uppercase tracking-wider">
-                    <span>{lang === "en" ? "Gross revenue today" : "今日结算总值"}</span>
+                    <span>{lang === "en" ? "Unrefunded payments today" : "今日未退款付款"}</span>
                     <TrendingUp className="w-4 h-4 text-emerald-600" />
                   </div>
                   <span className="text-2xl font-serif text-[#1A2F24] font-semibold mt-1 block">
@@ -2186,12 +2071,12 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                         <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-sm text-xs">
                           <div className="flex justify-between font-semibold text-emerald-800">
                             <span>{lang === "en" ? "STRIPE_SECRET_KEY (Production Live)" : "Stripe 生产实时秘钥"}</span>
-                            <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 bg-emerald-100 rounded">Live Active</span>
+                            <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 bg-emerald-100 rounded">Live configured</span>
                           </div>
                           <p className="text-stone-600 text-[10px] mt-1">
                             {lang === "en" 
-                              ? "Live transaction gateway connected. Credit cards and mobile wallets process genuine payments directly."
-                              : "Stripe 实时交易总线已连接，全球信用卡与移动支付通道正常处理真实账单。"}
+                              ? "Live credentials detected. Complete acceptance checks before enabling public checkout."
+                              : "已检测到生产配置。启用公开结账前必须完成验收测试。"}
                           </p>
                         </div>
                       ) : (
@@ -2202,8 +2087,8 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                           </div>
                           <p className="text-stone-600 text-[10px] mt-1">
                             {lang === "en" 
-                              ? "Stripe test key currently loaded. Enter your production secret key (sk_live_...) in Settings below to switch to live credit card billing."
-                              : "Stripe 当前处于测试模式 (sk_test_...)。请在下方设置中粘贴您的生产秘钥 (sk_live_...) 即可切换实时扣款。"}
+                              ? "Configure mode-specific credentials in protected deployment settings; complete webhook and payment acceptance checks."
+                              : "请在安全的部署设置中配置对应模式的凭据，并完成支付与 Webhook 验收。"}
                           </p>
                         </div>
                       )}
@@ -2211,10 +2096,10 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                       <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-sm text-xs">
                         <div className="flex justify-between font-semibold text-emerald-800">
                           <span>SendFox API Status</span>
-                          <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 bg-emerald-100 rounded">Healthy</span>
+                          <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 bg-emerald-100 rounded">Not checked</span>
                         </div>
                         <p className="text-stone-600 text-[10px] mt-1">
-                          {lang === "en" ? "Webhook endpoints active. Standard customer synchronization is live." : "SendFox API 回调网络测试通过，购买用户可实时同步。"}
+                          {lang === "en" ? "Use the server connection diagnostic; webhook delivery requires separate verification." : "请使用服务端诊断；Webhook 投递必须单独验证。"}
                         </p>
                       </div>
 
@@ -2230,9 +2115,12 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                     </div>
                   </div>
                   <button
-                    onClick={() => {
-                      addAuditLog("Manual Webhook Reset", "Fired self-check signal to Stripe and SendFox backends.");
-                      alert(lang === "en" ? "Webhook check complete! All simulated connections are healthy." : "信道健康自检完成！所有接口响应正常。");
+                    onClick={async () => {
+                      try {
+                        const response = await secureFetch('/api/admin/payment-health');
+                        const result = await response.json();
+                        alert(JSON.stringify(result, null, 2));
+                      } catch { alert('Payment diagnostics unavailable.'); }
                     }}
                     className="w-full text-center border border-[#D8D2C6] hover:border-[#8B5A44] hover:text-[#8B5A44] transition-colors py-2 text-[10px] font-display font-bold uppercase tracking-wider rounded-xs mt-3 bg-white"
                   >
@@ -2446,7 +2334,7 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                               });
                             }
                           }}
-                          placeholder="https://animated-frangollo-61bd01.netlify.app/ or https://online.fliphtml5.com/..." 
+                          placeholder=" or https://online.fliphtml5.com/..."
                           className="flex-1 bg-white border border-[#D8D2C6] rounded-xs p-2 focus:outline-none focus:border-[#8B5A44] font-mono text-xs text-stone-800" 
                         />
                         {(editingProduct?.html5FlipbookUrl || editingProduct?.flipbookUrl) && (
@@ -2588,7 +2476,7 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
               {/* Transactions list */}
               <div className="bg-white border border-[#D8D2C6]/40 p-5 rounded-sm">
                 <span className="font-serif text-sm font-semibold text-[#1A2F24] block mb-4">
-                  {lang === "en" ? "Recent Platform Invoices & Orders" : "近期平台结算流水与电子收据"}
+                  {lang === "en" ? "Latest 200 Orders (not a complete accounting export)" : "近期平台结算流水与电子收据"}
                 </span>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs text-left">
@@ -2604,43 +2492,20 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#D8D2C6]/20 font-mono">
+                      {systemTransactions.length === 0 && <tr><td colSpan={7} className="p-4">No verified orders recorded.</td></tr>}
                       {systemTransactions.map((tx) => (
                         <tr key={tx.id} className="hover:bg-[#FDFBF7]/50">
                           <td className="p-3 font-semibold text-[#8B5A44]">{tx.id}</td>
                           <td className="p-3 font-sans">{tx.email}</td>
                           <td className="p-3 font-sans truncate max-w-[150px]">{tx.item}</td>
-                          <td className="p-3 text-[#1A2F24] font-semibold">${tx.amount.toFixed(2)}</td>
+                          <td className="p-3 text-[#1A2F24] font-semibold">{(tx.currency || "usd").toUpperCase()} {tx.amount.toFixed(2)}</td>
                           <td className="p-3 text-stone-500">{tx.date}</td>
                           <td className="p-3 text-center">
                             <span className={`px-2 py-0.5 rounded-xs font-sans font-semibold text-[9px] uppercase ${tx.status === "Successful" || tx.status === "Paid" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-700 border border-red-200"}`}>
-                              {tx.status}
+                              {tx.status}{tx.refundedAmount > 0 ? ` (refunded ${tx.refundedAmount.toFixed(2)})` : ""}
                             </span>
                           </td>
                           <td className="p-3 text-right font-sans space-x-2">
-                            {/* Toggle manual override */}
-                            <button
-                              onClick={() => {
-                                setDeleteConfirm({
-                                  type: "status_override",
-                                  id: tx.id,
-                                  title: `Change order status from ${tx.status} to ${tx.status === "Successful" ? "Refunded" : "Successful"}`,
-                                  action: () => {
-                                    const newStatus = tx.status === "Successful" ? "Refunded" : "Successful";
-                                    setSystemTransactions(systemTransactions.map(t => t.id === tx.id ? { ...t, status: newStatus } : t));
-                                    if (supabase) {
-                                      supabase.from("purchases").update({ status: newStatus }).eq("transaction_id", tx.id).then(({ error }) => {
-                                        if (error) console.warn("Supabase update purchase status error:", error);
-                                      });
-                                    }
-                                    addAuditLog("Override Order Status", `Set order ${tx.id} status to ${newStatus}`);
-                                  }
-                                });
-                              }}
-                              className="text-stone-500 hover:text-[#8B5A44] text-[10px] hover:underline"
-                            >
-                              {lang === "en" ? "Toggle Status" : "重置状态"}
-                            </button>
-                            <span className="text-stone-300">|</span>
                             {/* Download invoice */}
                             <button
                               onClick={() => generateInvoicePDF(tx)}
@@ -3285,7 +3150,7 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                                         } catch (err) {}
                                       }
 
-                                      fetch("/api/sync-articles", {
+                                      secureFetch("/api/sync-articles", {
                                         method: "POST",
                                         headers: { "Content-Type": "application/json" },
                                         body: JSON.stringify({ articles: updated })
@@ -3320,7 +3185,7 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                                               } catch (err) {}
                                             }
 
-                                            fetch("/api/sync-articles", {
+                                            secureFetch("/api/sync-articles", {
                                               method: "POST",
                                               headers: { "Content-Type": "application/json" },
                                               body: JSON.stringify({ articles: newArticles })
@@ -3476,7 +3341,7 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                                   value={sendFoxApiKey} 
                                   onChange={(e) => {
                                     setSendFoxApiKey(e.target.value);
-                                    localStorage.setItem("sendfox_api_key", e.target.value);
+
                                   }} 
                                   placeholder="e.g. sf_pat_xxxxxxxxxxxxxxxxxxxxxx" 
                                   className="flex-1 bg-stone-50 border border-[#D8D2C6] rounded-xs p-2 font-mono text-xs text-stone-800" 
@@ -3825,8 +3690,8 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                       <div className="bg-[#E8DDCF]/20 p-4 border border-[#D8D2C6]/30 rounded-xs text-xs text-stone-600 leading-relaxed flex items-center gap-3">
                         <CheckCircle className="w-5 h-5 text-[#8B5A44] shrink-0" />
                         <div>
-                          <span className="font-bold text-[#1A2F24] block mb-0.5">{lang === "en" ? "Stripe-to-SendFox Webhook active" : "Stripe - SendFox 数据同步监听器已上线"}</span>
-                          <span>{lang === "en" ? "Subscribers are auto-synchronized in real-time. Direct marketing broadcasts triggered from this dashboard bypass all external relays." : "新购书思想者全自动挂载进入对应的 SendFox 发送流。在此面板编辑邮件可一键对接 SendFox 引擎，彻底解耦第三方软件。"}</span>
+                          <span className="font-bold text-[#1A2F24] block mb-0.5">{lang === "en" ? "SendFox connection managed server-side" : "SendFox 连接由服务端管理"}</span>
+                          <span>{lang === "en" ? "Broadcast operations require verified administrator access and protected provider configuration." : "邮件广播需要经过验证的管理员权限及受保护的服务端配置。"}</span>
                         </div>
                       </div>
                     </div>
@@ -4817,7 +4682,7 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
             const finalViews = Math.max(funnel.uniqueViews, totalArticleViews);
             const finalCart = funnel.cartAdditions;
             const finalCheckout = funnel.checkoutInitiations;
-            const finalPaid = Math.max(realPaid, 12);
+            const finalPaid = realPaid;
 
             const conversionFunnelData = [
               { name: lang === "en" ? "Unique Views" : "全域访问", count: finalViews, fill: "#1A2F24" },
@@ -5236,71 +5101,10 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                   </button>
                 </div>
 
-                {/* 2. Stripe Gateways config */}
-                <div className="bg-[#E8DDCF]/15 border border-[#D8D2C6]/40 p-5 rounded-sm space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="font-serif text-sm font-semibold text-[#1A2F24] flex items-center gap-1.5">
-                      <Key className="w-4 h-4 text-[#8B5A44]" />
-                      <span>Stripe Transaction Gateway Gatekeys</span>
-                    </span>
-                    <span className={`text-[9px] uppercase font-mono px-2 py-0.5 rounded font-bold ${
-                      stripeGatewayStatus.mode === "live" 
-                        ? "bg-emerald-100 text-emerald-800" 
-                        : "bg-amber-100 text-amber-800"
-                    }`}>
-                      {stripeGatewayStatus.mode === "live" ? "Live Mode" : "Test Mode"}
-                    </span>
-                  </div>
-
-                  {stripeSaveFeedback && (
-                    <div className={`p-2.5 rounded-xs text-xs font-mono ${
-                      stripeSaveFeedback.startsWith("Error") 
-                        ? "bg-red-50 text-red-700 border border-red-200" 
-                        : "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                    }`}>
-                      {stripeSaveFeedback}
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block mb-1 font-semibold text-xs text-[#1A2F24]">Stripe Publishable Key</label>
-                    <input 
-                      type="text" 
-                      value={apiSettings.stripePublishable} 
-                      onChange={(e) => setApiSettings({ ...apiSettings, stripePublishable: e.target.value })} 
-                      placeholder="pk_live_... or pk_test_..."
-                      className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 font-mono text-[10px]" 
-                    />
-                  </div>
-                  <div>
-                    <label className="block mb-1 font-semibold text-xs text-[#1A2F24]">Stripe Secret API Key (STRIPE_SECRET_KEY)</label>
-                    <input 
-                      type="password" 
-                      value={apiSettings.stripeSecret} 
-                      onChange={(e) => setApiSettings({ ...apiSettings, stripeSecret: e.target.value })} 
-                      placeholder="sk_live_... (enter for live real credit card charges) or sk_test_..."
-                      className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 font-mono text-[10px]" 
-                    />
-                    <p className="text-[10px] text-stone-500 mt-1">
-                      {lang === "en"
-                        ? "To switch from Test to Live mode, paste your production secret key (sk_live_...) from your Stripe Dashboard."
-                        : "要从测试切换到生产实时模式，请在此粘贴您 Stripe 控制台中的生产秘钥 (sk_live_...)。"}
-                    </p>
-                  </div>
-                  <button
-                    onClick={handleSaveStripeConfiguration}
-                    disabled={isSavingStripeKeys}
-                    className="border border-[#D8D2C6] bg-[#1A2F24] hover:bg-[#8B5A44] text-[#F4F1EB] px-4 py-2.5 rounded-xs font-display text-[9px] uppercase font-bold tracking-wider transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-2"
-                  >
-                    {isSavingStripeKeys ? (
-                      <>
-                        <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                        <span>Saving...</span>
-                      </>
-                    ) : (
-                      <span>Save & Activate Stripe Keys</span>
-                    )}
-                  </button>
+                <div className="border p-5 space-y-3">
+                  <h3>Stripe payment configuration</h3>
+                  <p>Mode: {stripeGatewayStatus.mode}. API and database checks: {stripeGatewayStatus.configured ? 'reachable' : 'unavailable'}.</p>
+                  <p>Configure STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET in protected deployment settings. Activation requires the production acceptance checks.</p>
                 </div>
 
                 {/* 3. SendFox Keys config */}
