@@ -18,7 +18,13 @@ let base: string;
 const sessions = new Map<string, any>();
 let stripeCalls = 0;
 let failRpc: string | null = null;
+let bucketPublic = false;
+let signedUrlCalls = 0;
 const db: any = {
+  storage: {
+    getBucket: async () => ({ data: { id: 'paid-books', public: bucketPublic }, error: null }),
+    from: () => ({ createSignedUrl: async () => { signedUrlCalls++; return { data: { signedUrl: 'https://storage.example.test/fixture-signed-url' }, error: null }; } })
+  },
   auth: { getUser: async (token: string) => ({ data: { user: token === 'valid-user' ? { id: userId, email: 'verified@example.test', email_confirmed_at: '2026-01-01' } : token === 'other-user' ? { id: otherId, email: 'other@example.test', email_confirmed_at: '2026-01-01' } : null }, error: null }) },
   rpc: async (name: string, args: any = {}) => {
     if (failRpc === name) return { error: { message: 'fixture failure' }, data: null };
@@ -103,6 +109,13 @@ before(async () => {
     insert into articles(id,title) values('existing-article','{"en":"Unchanged"}');
     insert into purchases(id,email,amount) values('legacy-proof','legacy@example.test',19);`);
   await pg.exec(readFileSync('supabase/migrations/202610300001_commerce_security.sql','utf8'));
+  // Exercise an actual upgrade with an existing paid order and entitlement.
+  const upgradeId = '33333333-3333-4333-8333-333333333333';
+  const oldOrder = await db.rpc('commerce_prepare_order',{p_id:upgradeId,p_user:null,p_guest:hash('upgrade_fixture'),p_key:'upgrade_fixture',p_items:[{product_id:'paid-book',title:'Paid Book',unit_amount:1900,quantity:1}],p_amount:1900,p_currency:'usd'});
+  assert.equal(oldOrder.error,null);
+  assert.equal((await db.rpc('commerce_attach_session',{p_order:upgradeId,p_session:'cs_test_upgradeFixture'})).error,null);
+  assert.equal((await db.rpc('commerce_apply_payment',{p_order_id:upgradeId,p_session_id:'cs_test_upgradeFixture',p_intent_id:null,p_status:'paid',p_email:'upgrade@example.test',p_event_id:'evt_upgradeFixture',p_event_type:'checkout.session.completed',p_refunded:0})).error,null);
+  await pg.exec(readFileSync('supabase/migrations/202610300002_payment_mode_isolation.sql','utf8'));
   server = createApp({ env, db, stripe }).listen(0,'127.0.0.1');
   await new Promise<void>(resolve => server.once('listening', resolve));
   base = `http://127.0.0.1:${server.address().port}`;
@@ -205,7 +218,7 @@ test('RLS blocks anonymous content/order writes and paid chapter reads; RPC iden
   await pg.exec('set role anon');
   await assert.rejects(pg.exec("update products set price=0"));
   await assert.rejects(pg.exec("select * from commerce_orders"));
-  await assert.rejects(pg.exec(`select commerce_access('paid-book','${userId}',null)`));
+  await assert.rejects(pg.exec(`select commerce_access('paid-book','${userId}',null,false)`));
   await assert.rejects(pg.exec('select * from book_chapters'));
   await pg.exec('reset role');
   await pg.exec(`set role authenticated; select set_config('request.jwt.claim.sub','${otherId}',false)`);
@@ -224,14 +237,16 @@ test('expired session remains unpaid',async()=> {
 });
 test('refund revokes access permanently even if a paid event is retried',async()=> {
  const c=await startCheckout();c.session.payment_status='paid';await webhook(c.session);
- await db.rpc('commerce_apply_payment',{p_order_id:c.row.id,p_session_id:c.session.id,p_intent_id:null,p_status:'refunded',p_email:null,p_event_id:'evt_refund_'+randomUUID(),p_event_type:'charge.refunded',p_refunded:1900});
+ await db.rpc('commerce_apply_payment',{p_order_id:c.row.id,p_session_id:c.session.id,p_intent_id:null,p_status:'refunded',p_email:null,p_event_id:'evt_refund_'+randomUUID(),p_event_type:'charge.refunded',p_refunded:1900,p_live:false});
  await webhook(c.session);
  assert.equal((await pg.query('select active from commerce_entitlements where order_id=$1',[c.row.id])).rows[0]['active'],false);
  assert.equal((await pg.query('select status from commerce_orders where id=$1',[c.row.id])).rows[0]['status'],'refunded');
+ const verified=await request('/api/verify-session?session_id='+c.session.id,{headers:{cookie:c.cookie}});
+ assert.equal(verified.body.paid,false);assert.equal(verified.body.status,'refunded');assert.deepEqual(verified.body.books,[]);
 });
 test('transaction rolls back entitlement/order changes when event persistence fails',async()=> {
  const c=await startCheckout();
- const r=await db.rpc('commerce_apply_payment',{p_order_id:c.row.id,p_session_id:c.session.id,p_intent_id:null,p_status:'paid',p_email:'verified@example.test',p_event_id:'evt_rollback',p_event_type:null,p_refunded:0});
+ const r=await db.rpc('commerce_apply_payment',{p_order_id:c.row.id,p_session_id:c.session.id,p_intent_id:null,p_status:'paid',p_email:'verified@example.test',p_event_id:'evt_rollback',p_event_type:null,p_refunded:0,p_live:false});
  assert.ok(r.error);
  assert.equal((await pg.query('select status from commerce_orders where id=$1',[c.row.id])).rows[0]['status'],'pending');
  assert.equal((await pg.query('select * from commerce_entitlements where order_id=$1',[c.row.id])).rows.length,0);
@@ -277,4 +292,81 @@ test('webhook recovers a session created before its database attachment failed',
  assert.equal((await webhook(c.session)).status,200);
  const row=(await pg.query('select stripe_session_id,status from commerce_orders where id=$1',[c.row.id])).rows[0] as any;
  assert.equal(row.stripe_session_id,c.session.id);assert.equal(row.status,'paid');
+});
+
+test('test purchases cannot unlock, verify or appear as live sales in a shared database',async()=> {
+ const c=await startCheckout();c.session.payment_status='paid';await webhook(c.session);
+ assert.ok((await request('/api/entitlements',{headers:{cookie:c.cookie}})).body.books.includes('paid-book'));
+ const production=createApp({env:{...env,NODE_ENV:'production',APP_URL:'https://shop.example.test',STRIPE_SECRET_KEY:'sk_live_'+'fixture'.repeat(5)},db,stripe}).listen(0,'127.0.0.1');
+ await new Promise<void>(r=>production.once('listening',r));
+ const address=production.address() as any;const origin=`http://127.0.0.1:${address.port}`;
+ try {
+  const library=await fetch(origin+'/api/entitlements',{headers:{cookie:c.cookie}}).then(r=>r.json());
+  assert.deepEqual(library.books,['free-book']);
+  assert.equal((await fetch(origin+'/api/products/paid-book/content',{headers:{cookie:c.cookie}})).status,403);
+  assert.equal((await fetch(origin+'/api/verify-session?session_id='+c.session.id,{headers:{cookie:c.cookie}})).status,404);
+  await pg.query('insert into security_admins(user_id) values($1)',[userId]);
+  const orders=await fetch(origin+'/api/admin/orders',{headers:{authorization:'Bearer valid-user'}}).then(r=>r.json());
+  assert.deepEqual(orders.orders,[]);
+ } finally {
+  await pg.query('delete from security_admins where user_id=$1',[userId]);
+  await new Promise<void>(r=>production.close(()=>r()));
+ }
+});
+test('claims and legacy grants respect Stripe mode; unknown mode never grants paid access',async()=> {
+ const c=await startCheckout();c.session.payment_status='paid';await webhook(c.session);
+ await db.rpc('commerce_claim',{p_user:otherId,p_email:'verified@example.test',p_live:true});
+ assert.equal((await pg.query('select user_id from commerce_orders where id=$1',[c.row.id])).rows[0]['user_id'],null);
+ await pg.query('update commerce_orders set livemode=null where id=$1',[c.row.id]);
+ for(const p_live of [true,false]) assert.equal((await db.rpc('commerce_access',{p_product:'paid-book',p_user:null,p_guest:hash(c.cookie.slice('purchase_owner='.length)),p_live})).data,false);
+ await pg.query("insert into commerce_legacy_grants(user_id,product_id,stripe_session_id,stripe_payment_intent_id,livemode) values($1,'paid-book','cs_test_legacy_fixture','pi_legacy_fixture',false)",[otherId]);
+ assert.equal((await db.rpc('commerce_access',{p_product:'paid-book',p_user:otherId,p_guest:null,p_live:false})).data,true);
+ assert.equal((await db.rpc('commerce_access',{p_product:'paid-book',p_user:otherId,p_guest:null,p_live:true})).data,false);
+});
+test('mode-aware idempotency separates the same owner/request across test and live',async()=> {
+ const items=[{product_id:'paid-book',title:'Paid Book',unit_amount:1900,quantity:1}];const key=randomUUID();
+ const common={p_user:null,p_guest:'fixture_owner',p_key:key,p_items:items,p_amount:1900,p_currency:'usd'};
+ const trial=await db.rpc('commerce_prepare_order',{...common,p_id:randomUUID(),p_live:false});
+ const liveOrder=await db.rpc('commerce_prepare_order',{...common,p_id:randomUUID(),p_live:true});
+ assert.equal(trial.error,null);assert.equal(liveOrder.error,null);assert.notEqual(trial.data,liveOrder.data);
+ await pg.query('delete from commerce_order_items where order_id=any($1)',[[trial.data,liveOrder.data]]);
+ await pg.query('delete from commerce_orders where id=any($1)',[[trial.data,liveOrder.data]]);
+});
+test('public paid bucket is rejected before signing; a private bucket yields an authorized short-lived URL',async()=> {
+ const c=await startCheckout();c.session.payment_status='paid';await webhook(c.session);
+ await pg.query("insert into commerce_assets(product_id,object_path) values('paid-book','fixture/book.epub')");
+ const before=signedUrlCalls;
+ try {
+  bucketPublic=true;
+  assert.equal((await request('/api/products/paid-book/download',{headers:{cookie:c.cookie}})).status,503);
+  assert.equal(signedUrlCalls,before);
+  bucketPublic=false;
+  const result=await request('/api/products/paid-book/download',{headers:{cookie:c.cookie}});
+  assert.equal(result.status,200);assert.equal(result.body.url,'https://storage.example.test/fixture-signed-url');
+  assert.equal(signedUrlCalls,before+1);
+ } finally {bucketPublic=false;await pg.exec("delete from commerce_assets where product_id='paid-book'");}
+});
+
+test('unpaid customer email is not claim evidence and paid email follows confirmed Stripe details',async()=> {
+ const c=await startCheckout();c.session.customer_details.email='unpaid@example.test';
+ await request('/api/verify-session?session_id='+c.session.id,{headers:{cookie:c.cookie}});
+ assert.equal((await pg.query('select customer_email from commerce_orders where id=$1',[c.row.id])).rows[0]['customer_email'],null);
+ c.session.customer_details.email='paid@example.test';c.session.payment_status='paid';await webhook(c.session);
+ assert.equal((await pg.query('select customer_email from commerce_orders where id=$1',[c.row.id])).rows[0]['customer_email'],'paid@example.test');
+});
+
+test('mode migration preserves prior paid records and quarantines unclassified access',async()=> {
+ const id='33333333-3333-4333-8333-333333333333';
+ const row=(await pg.query('select status,livemode,amount from commerce_orders where id=$1',[id])).rows[0] as any;
+ assert.equal(row.status,'paid');assert.equal(row.amount,1900);assert.equal(row.livemode,null);
+ assert.equal((await pg.query('select active from commerce_entitlements where order_id=$1',[id])).rows[0]['active'],true);
+ for(const p_live of [true,false]) assert.equal((await db.rpc('commerce_access',{p_product:'paid-book',p_user:null,p_guest:hash('upgrade_fixture'),p_live})).data,false);
+ assert.ok((await db.rpc('commerce_access',{p_product:'paid-book',p_user:null,p_guest:hash('upgrade_fixture')})).error);
+ assert.ok((await db.rpc('commerce_health')).data.unclassified_orders>=1);
+ const assigned=await db.rpc('commerce_assign_mode',{p_order:id,p_session:'cs_test_upgradeFixture',p_live:false,p_email:'confirmed-upgrade@example.test'});
+ assert.equal(assigned.error,null);
+ const classified=(await pg.query('select livemode,customer_email,owner_key from commerce_orders where id=$1',[id])).rows[0] as any;
+ assert.equal(classified.livemode,false);assert.equal(classified.customer_email,'confirmed-upgrade@example.test');assert.ok(classified.owner_key.startsWith('test:'));
+ assert.equal((await db.rpc('commerce_access',{p_product:'paid-book',p_user:null,p_guest:hash('upgrade_fixture'),p_live:false})).data,true);
+ assert.ok((await db.rpc('commerce_assign_mode',{p_order:id,p_session:'cs_test_upgradeFixture',p_live:true,p_email:'confirmed-upgrade@example.test'})).error);
 });

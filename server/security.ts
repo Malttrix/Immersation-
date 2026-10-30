@@ -5,9 +5,12 @@ export class PublicError extends Error {
 }
 export const unavailable = () => new PublicError(503, 'PAYMENT_UNAVAILABLE', 'Secure checkout is temporarily unavailable.');
 export const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+export function deploymentIsLive(env: NodeJS.ProcessEnv) {
+  // Vercel previews use NODE_ENV=production; VERCEL_ENV takes precedence.
+  return env.VERCEL_ENV ? env.VERCEL_ENV === 'production' : env.NODE_ENV === 'production';
+}
 export function paymentConfig(env: NodeJS.ProcessEnv) {
-  // A Vercel preview is built with NODE_ENV=production; VERCEL_ENV takes precedence.
-  const production = env.VERCEL_ENV ? env.VERCEL_ENV === 'production' : env.NODE_ENV === 'production';
+  const production = deploymentIsLive(env);
   const mode = production ? 'live' : 'test';
   const key = env.STRIPE_SECRET_KEY || '';
   if (!new RegExp(`^sk_${mode}_[A-Za-z0-9]{16,}$`).test(key) || !env.STRIPE_WEBHOOK_SECRET?.startsWith('whsec_')) throw unavailable();
@@ -37,5 +40,5 @@ export function pricedProduct(row: any) {
 export function validateSession(session: any, order: any, lines: any[], live: boolean) {
   const expected = [...order.order_items].sort((a, b) => a.product_id.localeCompare(b.product_id));
   const actual = lines.map(l => ({ product_id: l.price?.product?.metadata?.product_id, unit_amount: l.price?.unit_amount, quantity: l.quantity })).sort((a,b) => String(a.product_id).localeCompare(String(b.product_id)));
-  if (session.id !== order.stripe_session_id || session.livemode !== live || session.mode !== 'payment' || session.client_reference_id !== order.id || session.metadata?.order_id !== order.id || session.amount_total !== order.amount || session.currency !== order.currency || actual.length !== expected.length || actual.some((a,i) => a.product_id !== expected[i].product_id || a.unit_amount !== expected[i].unit_amount || a.quantity !== expected[i].quantity) || lines.some(l => l.currency !== order.currency)) throw new PublicError(409, 'PAYMENT_MISMATCH', 'Payment requires support review.');
+  if (session.id !== order.stripe_session_id || order.livemode !== live || session.livemode !== live || session.mode !== 'payment' || session.client_reference_id !== order.id || session.metadata?.order_id !== order.id || session.amount_total !== order.amount || session.currency !== order.currency || actual.length !== expected.length || actual.some((a,i) => a.product_id !== expected[i].product_id || a.unit_amount !== expected[i].unit_amount || a.quantity !== expected[i].quantity) || lines.some(l => l.currency !== order.currency)) throw new PublicError(409, 'PAYMENT_MISMATCH', 'Payment requires support review.');
 }

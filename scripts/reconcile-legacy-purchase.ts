@@ -31,11 +31,14 @@ async function main() {
   const intent=await stripe.paymentIntents.retrieve(pi,{expand:['latest_charge']});
   const charge=intent.latest_charge;
   if(intent.status!=='succeeded' || !charge || typeof charge==='string' || charge.amount_refunded>0 || charge.disputed) throw new Error('Refunded, disputed or unsettled receipt.');
-  const existing=await db.from('commerce_legacy_grants').select('user_id,active').eq('stripe_session_id',session.id);
-  if(existing.error || existing.data.some(g=>g.user_id!==user.id || !g.active)) throw new Error('Receipt already reconciled to a different or revoked owner.');
+  const existing=await db.from('commerce_legacy_grants').select('user_id,active,livemode').eq('stripe_session_id',session.id);
+  if(existing.error || existing.data.some(g=>g.user_id!==user.id || !g.active || (g.livemode!==null && g.livemode!==config.live))) throw new Error('Receipt already reconciled to a different or revoked owner.');
   // Ignore existing grants; rerunning must never reactivate a refunded receipt.
-  const result=await db.from('commerce_legacy_grants').upsert(items.map(i=>({user_id:user.id,product_id:i.product_id,stripe_session_id:session.id,stripe_payment_intent_id:pi})),{onConflict:'stripe_session_id,product_id',ignoreDuplicates:true});
+  const result=await db.from('commerce_legacy_grants').upsert(items.map(i=>({user_id:user.id,product_id:i.product_id,stripe_session_id:session.id,stripe_payment_intent_id:pi,livemode:config.live})),{onConflict:'stripe_session_id,product_id',ignoreDuplicates:true});
   if(result.error) throw new Error('Grant persistence failed.');
+  // Re-running after the mode-isolation migration labels previously verified grants.
+  const label = await db.from('commerce_legacy_grants').update({livemode:config.live}).eq('stripe_session_id',session.id).is('livemode',null);
+  if(label.error) throw new Error('Grant mode assignment failed.');
   console.log(`Reconciled ${items.length} verified legacy product grants. No payment was created.`);
 }
 main().catch(e=>{ console.error(e instanceof Error && !('raw' in e) ? e.message : 'Legacy reconciliation failed.');process.exitCode=1; });

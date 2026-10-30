@@ -2,13 +2,14 @@ import express, { type Request, type RequestHandler } from 'express';
 import Stripe from 'stripe';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { cartIdentifiers, guestHash, hash, paymentConfig, pricedProduct, PublicError, unavailable, validateSession } from './security';
+import { cartIdentifiers, deploymentIsLive, guestHash, paymentConfig, pricedProduct, PublicError, unavailable, validateSession } from './security';
 import { mountPublishing } from './publishing';
 import { defaultBookContent } from './book-content';
 
 type Dependencies = { env?: NodeJS.ProcessEnv; db?: SupabaseClient; stripe?: Stripe };
 export function createApp(deps: Dependencies = {}) {
   const env = deps.env || process.env;
+  const live = deploymentIsLive(env);
   const url = env.SUPABASE_URL || env.VITE_SUPABASE_URL;
   const db = deps.db || (url && env.SUPABASE_SERVICE_ROLE_KEY ? createClient(url, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } }) : null);
   const app = express();
@@ -39,10 +40,10 @@ export function createApp(deps: Dependencies = {}) {
   async function reconcile(sessionId: string, event?: Stripe.Event) {
     const { stripe, config } = gateway();
     const session = await stripe.checkout.sessions.retrieve(sessionId);
-    let order: any = checked(await database().from('commerce_orders').select('*,order_items:commerce_order_items(*)').eq('stripe_session_id', sessionId).maybeSingle());
+    let order: any = checked(await database().from('commerce_orders').select('*,order_items:commerce_order_items(*)').eq('stripe_session_id', sessionId).eq('livemode', live).maybeSingle());
     // Recover if Stripe created a session but the response/attachment database write failed.
     if (!order && /^[a-f0-9-]{36}$/.test(session.metadata?.order_id || '') && session.client_reference_id === session.metadata?.order_id) {
-      const candidate: any = checked(await database().from('commerce_orders').select('*,order_items:commerce_order_items(*)').eq('id', session.metadata.order_id).maybeSingle());
+      const candidate: any = checked(await database().from('commerce_orders').select('*,order_items:commerce_order_items(*)').eq('id', session.metadata.order_id).eq('livemode', live).maybeSingle());
       if (candidate && !candidate.stripe_session_id) order = candidate;
     }
     if (!order) throw unavailable();
@@ -61,9 +62,11 @@ export function createApp(deps: Dependencies = {}) {
     checked(await database().rpc('commerce_apply_payment', {
       p_order_id: order.id, p_session_id: session.id, p_intent_id: intentId || null,
       p_status: status, p_email: session.customer_details?.email || null,
-      p_event_id: event?.id || null, p_event_type: event?.type || null, p_refunded: refunded
+      p_event_id: event?.id || null, p_event_type: event?.type || null, p_refunded: refunded, p_live: live
     }));
-    return { ...order, status, paid: status === 'paid', books: status === 'paid' ? order.order_items.map((i: any) => i.product_id) : [] };
+    // The SQL transaction may preserve a refund/paid state over a stale provider event.
+    const persisted: any = checked(await database().from('commerce_orders').select('status').eq('id',order.id).eq('livemode',live).single());
+    return { ...order, status: persisted.status, paid: persisted.status === 'paid', books: persisted.status === 'paid' ? order.order_items.map((i: any) => i.product_id) : [] };
   }
   // Must precede express.json; Vercel adapter also disables its body parser.
   app.post('/api/stripe/webhook', express.raw({ type: 'application/json', limit: '1mb' }), route(async (req,res) => {
@@ -78,12 +81,14 @@ export function createApp(deps: Dependencies = {}) {
       await reconcile((event.data.object as Stripe.Checkout.Session).id, event);
     } else if (event.type === 'charge.refunded') {
       const charge = event.data.object as Stripe.Charge;
-      const order: any = checked(await database().from('commerce_orders').select('stripe_session_id').eq('stripe_payment_intent_id', charge.payment_intent).maybeSingle());
+      const paymentIntent = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id;
+      if (!paymentIntent) throw unavailable();
+      const order: any = checked(await database().from('commerce_orders').select('stripe_session_id').eq('stripe_payment_intent_id', paymentIntent).eq('livemode',live).maybeSingle());
       if (!order) {
         // Legacy recovery grants are based on independently reconciled Stripe receipts.
-        const legacy: any[] = checked(await database().from('commerce_legacy_grants').select('stripe_session_id').eq('stripe_payment_intent_id', charge.payment_intent));
+        const legacy: any[] = checked(await database().from('commerce_legacy_grants').select('stripe_session_id').eq('stripe_payment_intent_id', paymentIntent).eq('livemode',live));
         if (!legacy.length) throw unavailable();
-        checked(await database().rpc('commerce_revoke_legacy', { p_intent: charge.payment_intent, p_event: event.id, p_type: event.type }));
+        checked(await database().rpc('commerce_revoke_legacy', { p_intent: paymentIntent, p_event: event.id, p_type: event.type, p_live: live }));
       } else await reconcile(order.stripe_session_id, event);
     }
     res.json({ received: true });
@@ -108,7 +113,7 @@ export function createApp(deps: Dependencies = {}) {
   }));
   app.get('/api/admin/me', requireAdmin, (_req,res) => res.json({ admin: true }));
   app.get('/api/admin/orders', requireAdmin, route(async (_req,res) => {
-    const orders = checked(await database().from('commerce_orders').select('id,customer_email,amount,currency,status,paid_at,refunded_amount,created_at,commerce_order_items(product_id,title,unit_amount,quantity)').order('created_at', { ascending: false }).limit(200));
+    const orders = checked(await database().from('commerce_orders').select('id,customer_email,amount,currency,status,paid_at,refunded_amount,created_at,commerce_order_items(product_id,title,unit_amount,quantity)').eq('livemode',live).order('created_at', { ascending: false }).limit(200));
     res.json({ orders });
   }));
   app.get('/api/checkout-context', route(async (req,res) => {
@@ -128,16 +133,16 @@ export function createApp(deps: Dependencies = {}) {
     if (products.length !== ids.length) throw new PublicError(400, 'INVALID_PRODUCT', 'A selected product is unavailable.');
     const items = products.map(pricedProduct).sort((a,b) => a.product_id.localeCompare(b.product_id));
     for (const id of ids) {
-      const alreadyOwned = checked(await database().rpc('commerce_access', { p_product: id, p_user: u?.id || null, p_guest: ownerHash }));
+      const alreadyOwned = checked(await database().rpc('commerce_access', { p_product: id, p_user: u?.id || null, p_guest: ownerHash, p_live: live }));
       if (alreadyOwned) throw new PublicError(409, 'ALREADY_OWNED', 'This volume is already available in your library.');
     }
     const orderId: any = checked(await database().rpc('commerce_prepare_order', { p_id: randomUUID(), p_user: u?.id || null, p_guest: ownerHash,
-      p_key: requestKey, p_items: items, p_amount: items.reduce((n,i) => n+i.unit_amount,0), p_currency: 'usd' }));
+      p_key: requestKey, p_items: items, p_amount: items.reduce((n,i) => n+i.unit_amount,0), p_currency: 'usd', p_live: live }));
     const existing: any = checked(await database().from('commerce_orders').select('stripe_session_id').eq('id',orderId).single());
     if (existing.stripe_session_id) {
       const previous = await stripe.checkout.sessions.retrieve(existing.stripe_session_id);
       if (previous.status !== 'open' || !previous.url) throw new PublicError(409, 'CHECKOUT_CLOSED', 'Your previous checkout completed or expired. Check payment status before starting a new checkout.');
-      return res.json({ success: true, url: previous.url, orderId });
+      return res.json({ success: true, url: previous.url, orderId, sessionId: previous.id });
     }
     const session = await stripe.checkout.sessions.create({ mode: 'payment', client_reference_id: orderId, metadata: { order_id: orderId },
       line_items: items.map(i => ({ quantity: 1, price_data: { currency: 'usd', unit_amount: i.unit_amount, product_data: { name: i.title, metadata: { product_id: i.product_id } } } })),
@@ -145,11 +150,11 @@ export function createApp(deps: Dependencies = {}) {
       ...(u?.email && u.email_confirmed_at ? { customer_email: u.email } : {})
     }, { idempotencyKey: `checkout-${orderId}` });
     checked(await database().rpc('commerce_attach_session', { p_order: orderId, p_session: session.id }));
-    res.json({ success: true, url: session.url, orderId });
+    res.json({ success: true, url: session.url, orderId, sessionId: session.id });
   }));
   app.get('/api/verify-session', route(async (req,res) => {
     if (typeof req.query.session_id !== 'string' || !/^cs_(test_|live_)?[A-Za-z0-9]+$/.test(req.query.session_id)) throw new PublicError(400, 'INVALID_SESSION', 'Invalid payment session.');
-    const order: any = checked(await database().from('commerce_orders').select('*').eq('stripe_session_id', req.query.session_id).maybeSingle());
+    const order: any = checked(await database().from('commerce_orders').select('*').eq('stripe_session_id', req.query.session_id).eq('livemode',live).maybeSingle());
     await owned(req, order);
     const result = await reconcile(req.query.session_id);
     res.json({ paid: result.paid, books: result.books, status: result.status, orderId: result.id });
@@ -157,17 +162,17 @@ export function createApp(deps: Dependencies = {}) {
   app.post('/api/claim-purchases', route(async (req,res) => {
     const u = await user(req);
     if (!u.email || !u.email_confirmed_at) throw new PublicError(403, 'VERIFIED_EMAIL_REQUIRED', 'Verify your account email first.');
-    checked(await database().rpc('commerce_claim', { p_user: u.id, p_email: u.email }));
+    checked(await database().rpc('commerce_claim', { p_user: u.id, p_email: u.email, p_live: live }));
     res.json({ success: true });
   }));
   async function access(req: Request, id: string) {
     const u = await user(req,false);
-    const allowed: any = checked(await database().rpc('commerce_access', { p_product: id, p_user: u?.id || null, p_guest: guestHash(req) }));
+    const allowed: any = checked(await database().rpc('commerce_access', { p_product: id, p_user: u?.id || null, p_guest: guestHash(req), p_live: live }));
     if (!allowed) throw new PublicError(403, 'PURCHASE_REQUIRED', 'Purchase this volume or sign in to recover your purchase.');
   }
   app.get('/api/entitlements', route(async (req,res) => {
     const u = await user(req,false);
-    const books = checked(await database().rpc('commerce_library', { p_user: u?.id || null, p_guest: guestHash(req) }));
+    const books = checked(await database().rpc('commerce_library', { p_user: u?.id || null, p_guest: guestHash(req), p_live: live }));
     res.json({ books });
   }));
   app.get('/api/products', route(async (_req,res) => {
@@ -185,6 +190,8 @@ export function createApp(deps: Dependencies = {}) {
     await access(req,req.params.id);
     const asset: any = checked(await database().from('commerce_assets').select('object_path').eq('product_id',req.params.id).maybeSingle());
     if (!asset) throw new PublicError(409, 'FULFILLMENT_PENDING', 'Your purchase is recorded. The download is being prepared; contact support if this continues.');
+    const bucket = checked(await database().storage.getBucket('paid-books'));
+    if (!bucket || bucket.public) throw unavailable();
     const signed: any = checked(await database().storage.from('paid-books').createSignedUrl(asset.object_path, 60, { download: true }));
     res.json({ url: signed.signedUrl });
   }));
