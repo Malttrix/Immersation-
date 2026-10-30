@@ -2,9 +2,9 @@ import express, { type Request, type RequestHandler } from 'express';
 import Stripe from 'stripe';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { cartIdentifiers, deploymentIsLive, guestHash, paymentConfig, pricedProduct, PublicError, unavailable, validateSession } from './security';
-import { mountPublishing } from './publishing';
-import { defaultBookContent } from './book-content';
+import { cartIdentifiers, deploymentIsLive, guestHash, paymentConfig, pricedProduct, PublicError, unavailable, validateSession } from './security.js';
+import { mountPublishing } from './publishing.js';
+import { defaultBookContent } from './book-content.js';
 
 type Dependencies = { env?: NodeJS.ProcessEnv; db?: SupabaseClient; stripe?: Stripe };
 export function createApp(deps: Dependencies = {}) {
