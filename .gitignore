@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+.stripe_config.json
+*.pem
+*.key

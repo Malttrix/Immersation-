@@ -1,3 +1,7 @@
+-- DEPRECATED: legacy bootstrap grants public write access. Never run on an existing database.
+-- Use reviewed supabase/migrations/202610300001_commerce_security.sql instead.
+DO $$ BEGIN RAISE EXCEPTION 'Deprecated unsafe schema script; use versioned migrations'; END $$;
+
 -- ==============================================================================
 -- IMMERSATION｜智枢阁 FULL SUPABASE SCHEMA & AUTO-MIGRATION SCRIPT
 -- ==============================================================================
@@ -131,53 +135,5 @@ CREATE TABLE IF NOT EXISTS public.comment_likes (
 );
 
 -- ==============================================================================
--- ENABLE ROW LEVEL SECURITY (RLS) & PUBLIC ACCESS POLICIES
--- ==============================================================================
-ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.articles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.newsletters ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.newsletter_subscriptions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.purchases ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.coupons ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.article_comments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.comment_likes ENABLE ROW LEVEL SECURITY;
-
--- Drop existing policies if needed to avoid duplication errors
-DROP POLICY IF EXISTS "Public Read Products" ON public.products;
-DROP POLICY IF EXISTS "Public Write Products" ON public.products;
-CREATE POLICY "Public Read Products" ON public.products FOR SELECT USING (true);
-CREATE POLICY "Public Write Products" ON public.products FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Public Read Articles" ON public.articles;
-DROP POLICY IF EXISTS "Public Write Articles" ON public.articles;
-CREATE POLICY "Public Read Articles" ON public.articles FOR SELECT USING (true);
-CREATE POLICY "Public Write Articles" ON public.articles FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Public Read Newsletters" ON public.newsletters;
-DROP POLICY IF EXISTS "Public Write Newsletters" ON public.newsletters;
-CREATE POLICY "Public Read Newsletters" ON public.newsletters FOR SELECT USING (true);
-CREATE POLICY "Public Write Newsletters" ON public.newsletters FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Public Insert Subscriptions" ON public.newsletter_subscriptions;
-DROP POLICY IF EXISTS "Public Read Subscriptions" ON public.newsletter_subscriptions;
-CREATE POLICY "Public Insert Subscriptions" ON public.newsletter_subscriptions FOR INSERT WITH CHECK (true);
-CREATE POLICY "Public Read Subscriptions" ON public.newsletter_subscriptions FOR SELECT USING (true);
-
-DROP POLICY IF EXISTS "Public Write Purchases" ON public.purchases;
-DROP POLICY IF EXISTS "Public Read Purchases" ON public.purchases;
-CREATE POLICY "Public Write Purchases" ON public.purchases FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Public Write Coupons" ON public.coupons;
-DROP POLICY IF EXISTS "Public Read Coupons" ON public.coupons;
-CREATE POLICY "Public Write Coupons" ON public.coupons FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Public Write Comments" ON public.article_comments;
-DROP POLICY IF EXISTS "Public Read Comments" ON public.article_comments;
-CREATE POLICY "Public Write Comments" ON public.article_comments FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Public Write Comment Likes" ON public.comment_likes;
-DROP POLICY IF EXISTS "Public Read Comment Likes" ON public.comment_likes;
-CREATE POLICY "Public Write Comment Likes" ON public.comment_likes FOR ALL USING (true) WITH CHECK (true);
-
--- Confirmation message
-SELECT 'Database schema auto-migration and RLS policies configured successfully!' AS status;
+-- ENABLE ROW LEVEL SECURITY
+-- Legacy public-write policies have been removed. Apply the reviewed versioned migration.
