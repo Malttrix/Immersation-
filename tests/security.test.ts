@@ -2,6 +2,8 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
+import { spawn } from 'node:child_process';
 import { PGlite } from '@electric-sql/pglite';
 import Stripe from 'stripe';
 import { assertPublicEnvironment } from '../scripts/public-env';
@@ -369,4 +371,27 @@ test('mode migration preserves prior paid records and quarantines unclassified a
  assert.equal(classified.livemode,false);assert.equal(classified.customer_email,'confirmed-upgrade@example.test');assert.ok(classified.owner_key.startsWith('test:'));
  assert.equal((await db.rpc('commerce_access',{p_product:'paid-book',p_user:null,p_guest:hash('upgrade_fixture'),p_live:false})).data,true);
  assert.ok((await db.rpc('commerce_assign_mode',{p_order:id,p_session:'cs_test_upgradeFixture',p_live:true,p_email:'confirmed-upgrade@example.test'})).error);
+});
+
+test('staging smoke command stops before checkout when the deployed gateway reports live mode',async()=> {
+ const calls:string[]=[];
+ const target=createServer((req,res)=>{
+  calls.push(req.url || '');
+  assert.equal(req.headers.authorization,'Bearer staging_fixture');
+  assert.equal(req.headers['x-vercel-protection-bypass'],'automation_fixture');
+  res.setHeader('Content-Type','application/json');
+  res.end(JSON.stringify({mode:'live',stripe_reachable:true,persistence_healthy:true}));
+ }).listen(0);
+ await new Promise<void>(r=>target.once('listening',r));
+ const address=target.address() as any;
+ try {
+  const exit=await new Promise<number|null>((resolve,reject)=>{
+   const child=spawn(process.execPath,['--import','tsx','scripts/stripe-test-smoke.ts'],{
+    env:{...process.env,...env,VERCEL_ENV:'preview',APP_URL:`http://localhost:${address.port}`,STRIPE_TEST_PRODUCT_ID:'paid-book',STAGING_ADMIN_ACCESS_TOKEN:'staging_fixture',VERCEL_AUTOMATION_BYPASS_SECRET:'automation_fixture'},
+    stdio:'ignore'
+   });
+   child.once('error',reject);child.once('exit',resolve);
+  });
+  assert.equal(exit,1);assert.deepEqual(calls,['/api/admin/payment-health']);
+ } finally {await new Promise<void>(r=>target.close(()=>r()));}
 });
