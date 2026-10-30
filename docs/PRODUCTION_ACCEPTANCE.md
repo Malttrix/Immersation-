@@ -19,6 +19,9 @@ No boxes below are asserted complete merely because a local fixture passes.
 
 - [ ] Preview uses test credentials; production-key-in-preview and test-key-in-production both fail closed.
 - [ ] Missing/misconfigured keys, origin or storage return controlled unavailable responses.
+- [ ] Both versioned migrations are reviewed/applied in order; unknown-mode historical records are re-verified before cutover.
+- [ ] Test-mode purchases, legacy grants and claims cannot unlock live access or appear as live revenue, even if the database is shared.
+- [ ] Paid download signing refuses a public bucket; previously public external assets are separately restricted.
 - [ ] Checkout contains correct catalog products, quantity one, unchanged price and USD currency.
 - [ ] Altered cart amounts/titles/currency and nonexistent/inactive products are rejected.
 - [ ] Repeated clicks and retry with same key reuse the checkout; test expiry/new attempt recovery.

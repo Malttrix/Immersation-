@@ -16,7 +16,7 @@
 - `scripts/public-env.ts`: block known server credentials and Supabase service-role keys from public Vite variables.
 - `.env.example`, `.gitignore`, `vercel.json`, `vite.config.ts`, `tsconfig.server.json`, `package.json`, `package-lock.json`: protected configuration, compatible patched dependencies, tested Node 24 target, backend build outside public `dist`, consistent Vercel API routing.
 - `supabase_schema.sql`, `supabase_rls_security_fix.sql`: old unsafe policy execution disabled; permissive policy definitions removed.
-- `tests/security.test.ts`: 26 tests using real isolated PostgreSQL SQL/RLS and official Stripe SDK signature verification; external Stripe/Supabase interactions are fixtures.
+- `tests/security.test.ts`: 33 tests using real isolated PostgreSQL SQL/RLS and official Stripe SDK signature verification; external Stripe/Supabase interactions are fixtures.
 
 ## Reviewable implementation commits
 
@@ -26,13 +26,17 @@
 | `e42baf9` | Storefront authentication/access and removal of browser simulation |
 | `84fc019` | Security tests, dependency repair and isolated server build |
 | `c675f16` | Pin verified Node 24 LTS deployment runtime |
+| `eb52e53` | Initial audit and production activation guide |
+| `40e50e5` | Payment-mode isolation, stored payment state, private downloads and mode recovery |
+| `45b2519` | Gated genuine Stripe Test Mode smoke command |
+| `154b605` | Prove staging automation stops before checkout against a live gateway |
 
-The final documentation commit accompanies these implementation commits. The original baseline is `a5b9f8e`.
+Documentation updates accompany these implementation commits. The original baseline is `a5b9f8e`.
 
 ## Verification completed
 
 - `npm run lint`: passed.
-- `npm test`: **26 passed, zero failures**.
+- `npm test`: **33 passed, zero failures**.
 - `npm run build`: passed. Existing frontend chunk-size warning remains; backend is emitted to `build/server.cjs`, not public `dist`.
 - Same type checks, tests and build toolchain also passed using bundled **Node 24.22.1**. Initial required npm commands ran under the workstation's Node 26.4.0.
 - Compatible dependency updates report **zero npm audit vulnerabilities** at verification time.
@@ -58,12 +62,18 @@ The final documentation commit accompanies these implementation commits. The ori
 | 16–17. Data preserved / orders persist | Isolated real PostgreSQL migration and durable row checks; actual Supabase pending |
 | 18. Local storage manipulation | Frontend no longer reads unlock/transaction caches; backend rejects fabricated browser ownership. Provider-enabled browser tampering regression remains an acceptance check |
 
-Additional coverage includes preview-vs-production mode, asynchronous outcomes, expired sessions, refund permanence, atomic rollback, database retries, protected downloads, build-time secret guards and session-attachment failure recovery.
+Additional coverage includes preview-vs-production mode, shared-database entitlement isolation, asynchronous outcomes, expired sessions, persisted refund responses, atomic rollback, database retries, public-bucket rejection, confirmed-payment email, migration upgrades, build-time secret guards and session-attachment failure recovery. The staging command is also tested against a local live-mode fixture to prove it sends no checkout request.
+
+## Continuation work
+
+The follow-up adds strict database-level Stripe-mode isolation, persisted refund-status responses, confirmed-payment email capture and private-bucket enforcement. `202610300002_payment_mode_isolation.sql` is required after the initial migration; previous records remain intact with unknown mode until re-verified. `scripts/reconcile-payment-mode.ts` supports one-order-at-a-time operator recovery. `scripts/stripe-test-smoke.ts` provides an opt-in genuine unpaid Stripe test-session check, gated on the deployed administrator diagnostic reporting test mode; it has not been run against the supplied protected preview.
+
+Public target URLs were supplied and checked read-only. Supabase requires an API key, and the Vercel preview redirects the browser to Vercel login. No application mode, live schema or genuine payment behavior could be verified. See `STAGING_READINESS.md` for exact results and remaining access/configuration steps. No protected credentials are present in the local environment.
 
 ## Exact remaining activation work
 
 1. Rotate the exposed SendFox credential; review Stripe keys previously saved in the old dashboard and clean legacy secret stores through an approved operation.
-2. Back up actual Supabase data/policies. Compare actual schema and apply the migration to a staging clone, then validate RLS/PostgREST/Storage and administrator UUID enrollment.
+2. Back up actual Supabase data/policies. Compare actual schema and apply both migrations in order to a staging clone, then validate RLS/PostgREST/Storage and administrator UUID enrollment.
 3. Provision protected environment variables, canonical origin and Supabase OAuth/verified email delivery. Confirm no service-role credential is in frontend environment variables.
 4. Upload paid files to the private bucket, map them, verify signed downloads, and restrict prior public EPUB/HTML origins. New code cannot revoke external files already public or downloaded.
 5. Reconcile existing customers from genuine Stripe receipts before cutover; investigate receipts refused by the strict recovery tool. Preserve legacy rows; do not grant entitlement based solely on those rows.

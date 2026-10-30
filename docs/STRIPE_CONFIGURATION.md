@@ -28,7 +28,14 @@ Vercel supplies `VERCEL_ENV`: **production requires live credentials; preview/de
 
 ## Supabase setup
 
-Apply the reviewed versioned migration manually to staging first. It changes privileges but does not delete original records or rewrite prices. Review any integrations relying on public product table reads; the website now uses `/api/products` with a safe projection. The editor still writes through Supabase using its authenticated administrator session and the new RLS.
+Apply both reviewed migrations manually to staging in this order:
+
+1. `supabase/migrations/202610300001_commerce_security.sql`
+2. `supabase/migrations/202610300002_payment_mode_isolation.sql`
+
+If the initial migration was already applied, apply only the second migration. It replaces mode-less RPC signatures; deploy the matching API in the coordinated checkout maintenance window. Existing order/grant rows are preserved with unknown mode, which does not grant paid access. Before reopening checkout, re-verify each existing order through `npm run reconcile:mode -- <existing-order-UUID>` using its matching protected Stripe environment. Previously reconciled legacy grants must be re-verified with `npm run reconcile:legacy` to assign their genuine mode. The recovery command refreshes the confirmed Stripe email and requires manual investigation when an existing account does not match the verified receipt. Never bulk-label old records as live based on their payment status. Administrator diagnostics report unclassified record counts.
+
+The remaining setup applies after both migrations. It changes privileges but does not delete original records or rewrite prices. Review any integrations relying on public product table reads; the website now uses `/api/products` with a safe projection. The editor still writes through Supabase using its authenticated administrator session and the new RLS.
 
 Enroll an existing verified Supabase user as an administrator through the trusted SQL editor:
 
@@ -53,6 +60,20 @@ on conflict (product_id) do update set object_path=excluded.object_path;
 ```
 
 Confirm the bucket is private even if it existed before migration. No public policy should reveal its objects. Authorized downloads obtain a 60-second signed URL. These URLs are short-lived bearer links; they are not DRM. Move chapter data into the protected `book_chapters` table or the existing product chapters field. Server fallback chapters cover the original source books. Restrict previously public file origins separately; references alone do not protect those copies.
+
+## Supplied staging targets and automation
+
+See `STAGING_READINESS.md` for the supplied targets and observed access blockers. `STAGING_ENVIRONMENT.example` contains those public URLs and blank secret placeholders; copy values only into an ignored local environment file or protected deployment settings. Confirm the supplied Supabase project is actually safe for staging writes; its URL alone does not establish that.
+
+After an explicitly approved preview deployment of the updated branch, both reviewed staging migrations, and protected test configuration, run:
+
+```bash
+npm run test:stripe-staging
+```
+
+This opt-in command requires `STRIPE_TEST_PRODUCT_ID` and a current verified administrator `STAGING_ADMIN_ACCESS_TOKEN`. It checks that the actual deployed gateway reports **test** mode before creating any checkout, retrieves the genuine Stripe session, checks the durable order and unpaid access denial, and expires the test session. It does not submit payment details or complete a payment. Pending/expired test order rows remain for traceability. A passing result does not prove paid fulfillment or hosted webhook delivery.
+
+For protected previews, the command can use an **existing, owner-approved** `VERCEL_AUTOMATION_BYPASS_SECRET` via HTTP header. It never creates access credentials, disables deployment protection, sends the token in query strings or copies browser login cookies. A browser Vercel sign-in does not automatically authenticate a terminal test. Stripe webhook delivery is also subject to preview protection; arrange an owner-approved delivery method and test it separately while retaining signature verification. No such protection changes were performed here. See [Vercel automation access](https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/protection-bypass-automation).
 
 ## Stripe Test Mode
 

@@ -33,6 +33,17 @@ Repository: Malttrix/Immersation-. Baseline: `a5b9f8e`. Feature branch: `securit
 | Medium | `.gitignore`, Vite config | Secret file not ignored; accidental frontend-prefixed secrets could enter bundles | Ignore legacy key file; build rejects frontend server keys and service-role JWTs | Automated environment guard test passes |
 | High/Medium | Lockfile/dependencies | Out-of-sync lock and published vulnerabilities | Repair lock; compatible security updates including Express 4.22.3 | `npm audit` reports zero vulnerabilities at verification time |
 
+## Follow-up review
+
+The continuation added `202610300002_payment_mode_isolation.sql`; apply it after the initial migration. It preserves previous rows and leaves their mode unclassified until Stripe evidence is re-verified. Unknown-mode rows cannot grant paid access. The fixture suite now contains 33 tests.
+
+| Severity | Affected file(s) | Finding | Remediation | Verification |
+|---|---|---|---|---|
+| Critical | `server/app.ts`, commerce RPCs | A shared Supabase project could let test entitlements unlock products in a live deployment | Bind orders, grants, claims, lookups, idempotency and financial reports to explicit Stripe mode; remove mode-less RPC signatures | Cross-mode HTTP/SQL and upgrade tests pass |
+| High | Download endpoint | An accidentally public paid bucket could still issue download links | Read bucket configuration and refuse to sign unless it is private | Public-bucket rejection/private signing fixture passes |
+| Medium | Payment reconciliation | A stale paid result could be returned after SQL retained a refund | Return persisted transaction status, rather than the pre-transaction calculation | Refund response reports unpaid/refunded with no books |
+| Medium | Payment email persistence | An unpaid email snapshot could precede the final confirmed Stripe details | Persist claim email only when payment is confirmed; use the confirmed Stripe email | Unpaid-to-paid email regression passes |
+
 ## Credentials and sensitive assets requiring manual action
 
 - **SendFox personal access credential:** exposed in baseline source and Git history. Revoke/replace it in SendFox and store only `SENDFOX_API_KEY` server-side. Deleting code does not invalidate an exposed credential. Existing deployments, CDN copies and local browser storage may contain it.

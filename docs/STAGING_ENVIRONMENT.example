@@ -1,0 +1,15 @@
+# Copy to an ignored local environment file or protected Vercel Preview settings.
+# User-supplied project URL. Confirm this project is safe for nonproduction payment tests.
+SUPABASE_URL=https://zoneqvjrbcowlzwiyinq.supabase.co
+VITE_SUPABASE_URL=https://zoneqvjrbcowlzwiyinq.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=
+VITE_SUPABASE_ANON_KEY=
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+APP_URL=https://immersation-5jo8g7p38-immersation.vercel.app
+VERCEL_ENV=preview
+# Optional genuine test-session smoke check (no payment is submitted).
+STRIPE_TEST_PRODUCT_ID=
+STAGING_ADMIN_ACCESS_TOKEN=
+# Optional existing Vercel automation credential for a protected preview.
+VERCEL_AUTOMATION_BYPASS_SECRET=
