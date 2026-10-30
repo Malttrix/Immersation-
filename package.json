@@ -11,7 +11,9 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
-    "reconcile:legacy": "tsx scripts/reconcile-legacy-purchase.ts"
+    "reconcile:legacy": "tsx scripts/reconcile-legacy-purchase.ts",
+    "reconcile:mode": "tsx scripts/reconcile-payment-mode.ts",
+    "test:stripe-staging": "tsx scripts/stripe-test-smoke.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
