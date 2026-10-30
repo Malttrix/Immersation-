@@ -161,7 +161,13 @@ export default async function convertEpubHandler(req: Request, res: Response) {
       return res.status(400).json({ success: false, error: "Missing epubUrl parameter" });
     }
 
-    const candidates = getCandidateUrls(epubUrl);
+    let source: URL;
+    try { source = new URL(epubUrl); } catch { return res.status(400).json({ success: false, error: "Invalid EPUB URL" }); }
+    const allowed = (process.env.EPUB_ALLOWED_HOSTS || "").split(',').map(v => v.trim()).filter(Boolean);
+    if (source.protocol !== 'https:' || source.username || source.password || !allowed.includes(source.hostname)) {
+      return res.status(400).json({ success: false, error: "EPUB source host is not configured for import" });
+    }
+    const candidates = [source.href];
     let response: globalThis.Response | null = null;
     let lastFetchError = "";
 
@@ -169,6 +175,7 @@ export default async function convertEpubHandler(req: Request, res: Response) {
     for (const candidate of candidates) {
       try {
         const resCandidate = await fetch(candidate, {
+          redirect: "error", signal: AbortSignal.timeout(15000),
           headers: {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 ImmersationEpubConverter/1.0",
             "Accept": "*/*"
@@ -218,12 +225,21 @@ export default async function convertEpubHandler(req: Request, res: Response) {
     }
 
     // 2. Load ZIP using AdmZip
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    if (!response.body) throw new Error('Empty EPUB');
+    for await (const chunk of response.body as any) {
+      total += chunk.length;
+      if (total > 20 * 1024 * 1024) throw new Error('EPUB size limit exceeded');
+      chunks.push(chunk);
+    }
+    const buffer = Buffer.concat(chunks);
 
     let zip: any;
     try {
       zip = new AdmZip(buffer);
+      const entries = zip.getEntries();
+      if (entries.length > 2000 || entries.reduce((n: number, e: any) => n + e.header.size, 0) > 50 * 1024 * 1024) throw new Error('Expanded EPUB limit exceeded');
     } catch (zipErr: any) {
       return res.status(400).json({
         success: false,
@@ -451,27 +467,25 @@ export default async function convertEpubHandler(req: Request, res: Response) {
     console.error("EPUB Conversion Exception:", error);
     return res.status(500).json({
       success: false,
-      error: error.message || "An unexpected error occurred during EPUB parsing."
+      error: "EPUB parsing is temporarily unavailable."
     });
   }
 }
 
 async function saveChaptersToSupabase(productId: string, chapters: BookChapter[], sourceEpubUrl: string) {
-  const supabaseUrl = process.env.VITE_SUPABASE_URL || "";
-  const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+  const supabaseAnonKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
   const serverSupabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
   if (serverSupabase) {
     try {
-      await serverSupabase.from("book_chapters").delete().eq("product_id", productId);
-      await serverSupabase.from("book_chapters").insert({
+      const { error } = await serverSupabase.from("book_chapters").upsert({
         product_id: productId,
-        chapters,
-        converted_at: new Date().toISOString(),
-        source_epub_url: sourceEpubUrl
-      });
+        chapters
+      }, { onConflict: "product_id" });
+      if (error) throw error;
     } catch (err) {
-      console.warn("Supabase saveChaptersToSupabase non-fatal error:", err);
+      throw new Error("Chapter persistence unavailable");
     }
   }
 }
