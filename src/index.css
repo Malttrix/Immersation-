@@ -318,3 +318,91 @@ aside[class*="sticky"] {
     transition: none;
   }
 }
+
+/* Article magazine: scoped to the reader so archive, studio and commerce stay unchanged. */
+.magazine-reader { --magazine-paper: #F4F1EB; --magazine-ink: #1A2F24; }
+.magazine-reader > div { max-width: 1440px; }
+.magazine-reader .flex-1, .magazine-article { min-width: 0; }
+.magazine-reader-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4rem; }
+.magazine-article { width: 100%; }
+.magazine-masthead { position: relative; isolation: isolate; padding: clamp(1.5rem, 4vw, 4rem) 0 1rem; }
+.magazine-backdrop { position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.magazine-backdrop img { width: 100%; height: 100%; object-fit: cover; object-position: 80% center; opacity: .13; }
+.magazine-masthead .magazine-backdrop { right: -4rem; left: 20%; }
+.magazine-masthead .magazine-backdrop::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, #F4F1EB 0%, #F4F1EBb3 40%, #F4F1EB33 100%), linear-gradient(0deg, #F4F1EB, transparent 45%, #F4F1EB88); }
+.magazine-category { font: 600 .68rem/1.6 var(--font-sans); letter-spacing: .22em; text-transform: uppercase; color: #8B5A44; margin: 0 0 1.5rem; }
+.magazine-title { font-family: var(--font-serif); font-size: clamp(2.4rem, 4.1vw, 4.65rem); line-height: 1.13; letter-spacing: -.038em; font-weight: 400; color: #1A2F24; max-width: 23ch; margin: 0 0 1.6rem; text-wrap: balance; overflow-wrap: anywhere; }
+.magazine-deck { max-width: 59ch; font-family: var(--font-serif); font-size: clamp(1.05rem, 1.5vw, 1.3rem); line-height: 1.7; color: #41473f; margin: 0 0 2rem; }
+.magazine-byline { position: relative; color: #55594f; line-height: 1.8; margin-bottom: 2rem; }
+.magazine-image { display: block; min-width: 0; margin: 2.8rem 0; }
+.magazine-image-surface { display: block; aspect-ratio: 16 / 9; background: #e8e4db; overflow: hidden; }
+.magazine-image img { display: block; width: 100%; height: 100%; object-fit: contain; margin: 0 !important; border-radius: 0; }
+.magazine-image-fallback { display: block; width: 100%; height: 100%; background: linear-gradient(135deg, #e8e4db, #d9ded5); }
+.magazine-image figcaption, .magazine-image-caption { display: block; max-width: 65ch; font: .75rem/1.7 var(--font-sans); letter-spacing: .015em; color: #595c54; margin-top: .9rem; text-align: left; }
+.magazine-cover { margin: 0 0 3rem; }
+.magazine-cover .magazine-image-surface { border-bottom: 3px solid #B69A6B; }
+.magazine-reader .prose-immersation { max-width: 100%; font-size: 1.14rem; line-height: 1.9; }
+.magazine-reader .prose-immersation > :not(.magazine-photo-section):not(.magazine-split):not(.magazine-full-image):not(.magazine-pullquote) { max-width: 64ch; margin-left: auto; margin-right: auto; }
+.magazine-reader .prose-immersation p { font-size: inherit; line-height: 1.9; margin-top: 1.5rem; margin-bottom: 1.5rem; }
+.magazine-reader .prose-immersation h2 { font-size: clamp(1.7rem, 2.6vw, 2.35rem); line-height: 1.3; letter-spacing: -.025em; font-weight: 400; }
+.magazine-reader .prose-immersation h3, .magazine-reader .prose-immersation h4 { font-family: var(--font-serif); line-height: 1.5; }
+.magazine-reader .prose-immersation li { font-size: 1.05rem; line-height: 1.8; }
+.magazine-reader .prose-immersation a { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: .2em; }
+.magazine-reader .prose-immersation pre { max-width: 100%; }
+.magazine-reader .prose-immersation pre code { white-space: pre; }
+.magazine-reader .prose-immersation p code { overflow-wrap: anywhere; }
+.magazine-reader .prose-immersation .magazine-pullquote { border: 0; border-top: 1px solid #B69A6B; border-bottom: 1px solid #B69A6B; padding: 2.5rem clamp(0rem, 2vw, 2rem); margin: 4rem 0; font-style: normal; color: #1A2F24; }
+.magazine-reader .magazine-pullquote p { font-size: clamp(1.65rem, 3vw, 2.65rem); line-height: 1.4; letter-spacing: -.025em; margin: 0; }
+.magazine-pullquote strong { font-weight: 400; }
+.magazine-photo-section { position: relative; isolation: isolate; margin: 4rem 0; padding: clamp(1.5rem, 4vw, 3.5rem); background: #eeece5; }
+.magazine-photo-section .magazine-backdrop { height: min(100%, 720px); }
+.magazine-photo-section .magazine-backdrop img { opacity: .1; transform: scale(1.7); transform-origin: right center; }
+.magazine-photo-section .magazine-backdrop::after { content: ''; position: absolute; inset: 0; background: linear-gradient(0deg, #eeece5, #eeece5aa 35%, transparent); }
+.magazine-photo-copy { max-width: 60ch; margin: auto; }
+.magazine-photo-copy > :first-child { padding-top: 0; }
+.magazine-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 2rem; align-items: start; margin: 4rem 0; }
+.magazine-split > .magazine-image { margin: 0; position: sticky; top: 7rem; }
+.magazine-split .magazine-image-surface { aspect-ratio: 4 / 5; }
+.magazine-split-right > .magazine-image { order: 2; }
+.magazine-split-copy { min-width: 0; }
+.magazine-sidebar { display: none; }
+.magazine-reader :focus-visible { outline: 2px solid #8B5A44; outline-offset: 5px; }
+.magazine-reader [lang='zh-Hans'], .magazine-reader:lang(zh) { line-break: strict; }
+.magazine-reader:lang(zh) .magazine-title { max-width: 21ch; letter-spacing: .01em; line-height: 1.4; font-weight: 500; }
+.magazine-reader:lang(zh) .prose-immersation p { line-height: 2; }
+@media (min-width: 1100px) {
+  .magazine-reader-grid { grid-template-columns: minmax(0, 1fr) 244px; gap: 4rem; }
+  .magazine-sidebar { display: flex; padding-top: 4rem; }
+  .magazine-mobile-toc, .magazine-mobile-extras { display: none; }
+}
+@media (max-width: 767px) {
+  .magazine-reader > div { padding-inline: 1.25rem; }
+  .magazine-reader #reader-top-bar { margin-bottom: 1.5rem; }
+  .magazine-reader #reader-back-btn { letter-spacing: .12em; font-size: .63rem; }
+  .magazine-masthead { padding-top: 1rem; }
+  .magazine-masthead .magazine-backdrop { right: -1.25rem; left: 0; }
+  .magazine-title { font-size: clamp(2.15rem, 8vw, 3.5rem); line-height: 1.17; }
+  .magazine-deck { font-size: 1.03rem; }
+  .magazine-byline { font-size: .65rem; gap: .7rem; }
+  .magazine-reader .prose-immersation { font-size: 1.0625rem; }
+  .magazine-photo-section { margin-inline: -1.25rem; padding: 2rem 1.25rem; }
+  .magazine-split { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  .magazine-split > .magazine-image { position: static; order: 0; }
+  .magazine-split .magazine-image-surface { aspect-ratio: 16 / 9; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .magazine-reader *, .magazine-reader *::before, .magazine-reader *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .magazine-reader .magazine-backdrop { display: none; }
+}
+@media print {
+  .magazine-reader .magazine-backdrop, .magazine-reader .magazine-sidebar, .magazine-reader .magazine-mobile-extras { display: none; }
+  .magazine-reader .magazine-title { font-size: 28pt; }
+  .magazine-reader .magazine-photo-section { background: transparent; padding: 0; }
+}
+/* Clip horizontal artwork without creating a second scroll container for the reader. */
+#immersation-app:has(#article-reader-view) { overflow-x: clip; overflow-y: visible; }
+@media (min-width: 1100px) {
+  .magazine-sidebar { overflow-y: auto; scrollbar-width: thin; scrollbar-color: #D8D2C6 transparent; }
+}

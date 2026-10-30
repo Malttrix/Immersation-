@@ -7,6 +7,8 @@ import { motion, useScroll, useTransform, useReducedMotion } from "motion/react"
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
+import remarkMagazine, { magazineSanitizeSchema, type MagazineLayout } from "../lib/magazine-markdown";
+import { EditorialImage, MagazineBlock } from "./ArticleMagazine";
 import { 
   ArrowLeft, 
   ArrowRight, 
@@ -34,8 +36,8 @@ import {
  * ACCESSIBILITY & PREFERS-REDUCED-MOTION SPECIFICATION:
  * All motion components check `useReducedMotion()`. When `prefers-reduced-motion: reduce`
  * is enabled in the user's OS or browser preferences:
- * - All transform-based animations (scaleX underline triggers, paragraph translate-y slide-ups,
- *   sidebar card entrances, and hero image parallax transforms) are automatically disabled.
+ * - All transform-based animations (scaleX underline triggers,
+ *   sidebar card entrances, and sidebar transforms) are automatically disabled.
  * - The components fall back immediately to instant 100% opacity and static layouts,
  *   ensuring full compliance with WCAG 2.1 AAA motion guidelines.
  * ============================================================================
@@ -151,6 +153,7 @@ export function TableOfContents({
   return (
     <div className="border border-[#D8D2C6] rounded-sm bg-white/60 p-4 flex flex-col max-h-[42vh] shadow-2xs">
       <button
+        aria-expanded={open}
         onClick={() => setOpen(!open)}
         className="flex items-center justify-between w-full text-[11px] tracking-[0.2em] uppercase text-[#1A2F24] font-bold shrink-0 cursor-pointer"
       >
@@ -174,7 +177,7 @@ export function TableOfContents({
                       const rect = el.getBoundingClientRect();
                       const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
                       const targetY = rect.top + scrollTop + yOffset;
-                      window.scrollTo({ top: targetY, behavior: "smooth" });
+                      window.scrollTo({ top: targetY, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
                       window.history.pushState(null, "", `#${headingId}`);
                     }
                   }}
@@ -254,8 +257,8 @@ export function ArticleHeading({
 }
 
 // ----------------------------------------------------------------------------
-// 4. PARAGRAPH FADE-UP (ArticleParagraph)
-// Article paragraphs fade in & translate up 10px on viewport entry (staggered 50ms)
+// 4. EDITORIAL PARAGRAPH (ArticleParagraph)
+// Article text stays visible immediately; typography carries the reading rhythm.
 // ----------------------------------------------------------------------------
 export function ArticleParagraph({
   children,
@@ -266,23 +269,8 @@ export function ArticleParagraph({
   index?: number;
   className?: string;
 }) {
-  const shouldReduceMotion = useReducedMotion();
-
-  return (
-    <motion.p
-      initial={shouldReduceMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 10 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-20px" }}
-      transition={{
-        duration: shouldReduceMotion ? 0 : 0.3,
-        delay: shouldReduceMotion ? 0 : (index % 5) * 0.05,
-        ease: "easeOut",
-      }}
-      className={`leading-relaxed font-serif text-base sm:text-[17px] text-[#1C1C1C]/90 my-5 ${className}`}
-    >
-      {children}
-    </motion.p>
-  );
+  // Editorial text stays readable immediately, including find-in-page and anchor jumps.
+  return <p className={`leading-relaxed font-serif text-base sm:text-[17px] text-[#1C1C1C]/90 my-5 ${className}`}>{children}</p>;
 }
 
 // ----------------------------------------------------------------------------
@@ -312,8 +300,8 @@ export function SidebarCard({
 }
 
 // ----------------------------------------------------------------------------
-// 6. SUBTLE HERO IMAGE PARALLAX (HeroImage)
-// Moves at 92% of scroll speed relative to container (8% parallax offset)
+// 6. FULL-QUALITY EDITORIAL COVER (HeroImage)
+// Original image, reserved aspect ratio, no crop or color grading.
 // ----------------------------------------------------------------------------
 export function HeroImage({
   src,
@@ -324,31 +312,7 @@ export function HeroImage({
   alt: string;
   className?: string;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const shouldReduceMotion = useReducedMotion();
-
-  const { scrollYProgress } = useScroll({
-    target: containerRef,
-    offset: ["start end", "end start"],
-  });
-
-  const y = useTransform(scrollYProgress, [0, 1], ["-4%", "4%"]);
-
-  return (
-    <div
-      ref={containerRef}
-      className="relative overflow-hidden rounded-sm border border-[#D8D2C6]/60 shadow-sm mb-10 group"
-    >
-      <motion.img
-        src={src || undefined}
-        alt={alt}
-        referrerPolicy="no-referrer"
-        style={{ y: shouldReduceMotion ? 0 : y, scale: 1.08 }}
-        className={`w-full h-auto max-h-[520px] object-cover ${className}`}
-        loading="eager"
-      />
-    </div>
-  );
+  return <EditorialImage src={src} alt={alt} priority className={`magazine-cover ${className}`} />;
 }
 
 // ----------------------------------------------------------------------------
@@ -529,9 +493,7 @@ export function ArticlePage({
     return "";
   };
 
-  let paragraphIndex = 0;
-
-  const markdownComponents = {
+  const markdownComponents = useMemo(() => ({
     h1: ({ children }: any) => (
       <h1 className="font-serif text-3xl sm:text-4xl font-bold text-[#1A2F24] pt-12 pb-4 border-b border-[#D8D2C6]">
         {children}
@@ -564,17 +526,12 @@ export function ArticlePage({
     p: ({ children }: any) => {
       const text = getPlainText(children).trim();
 
+      const imageOnly = React.Children.toArray(children).every(child =>
+        typeof child === 'string' ? !child.trim() : React.isValidElement(child) && (child.props as any).node?.tagName === 'img');
+      if (imageOnly && React.Children.count(children)) return <div className="magazine-inline-figure">{children}</div>;
+
       if (/^https?:\/\/.*\.(png|jpe?g|gif|webp|svg|heic)(\?.*)?$/i.test(text)) {
-        return (
-          <figure className="my-8 space-y-2 text-center article-image-frame">
-            <img
-              src={text || undefined}
-              alt="Article Image"
-              referrerPolicy="no-referrer"
-              className="mx-auto rounded-sm border border-[#D8D2C6]/60 shadow-sm max-h-[400px] w-full max-w-full object-cover loading-lazy article-graded-img"
-            />
-          </figure>
-        );
+        return <EditorialImage src={text} alt="" />;
       }
 
       if (text.includes("{{audio:")) {
@@ -595,9 +552,8 @@ export function ArticlePage({
         }
       }
 
-      paragraphIndex += 1;
       return (
-        <ArticleParagraph index={paragraphIndex}>
+        <ArticleParagraph>
           {children}
         </ArticleParagraph>
       );
@@ -681,26 +637,23 @@ export function ArticlePage({
     td: ({ children }: any) => (
       <td className="px-4 py-3 font-serif text-[#1C1C1C]/90 leading-relaxed">{children}</td>
     ),
-    img: ({ src, alt }: any) => (
-      <figure className="my-8 space-y-2 text-center article-image-frame">
-        <img
-          src={src || undefined}
-          alt={alt}
-          referrerPolicy="no-referrer"
-          className="mx-auto rounded-sm border border-[#D8D2C6]/60 shadow-sm max-h-[400px] w-full max-w-full object-cover loading-lazy article-graded-img"
-        />
-        {alt && (
-          <figcaption className="font-display text-[10px] text-[#1C1C1C]/50 uppercase tracking-widest">
-            {alt}
-          </figcaption>
-        )}
-      </figure>
+    img: ({ src, alt, title, node }: any) => (
+      <span className="magazine-markdown-image">
+        <EditorialImage src={src} alt={alt || ""} caption={title || alt} inline />
+      </span>
     ),
+    section: ({ node, children }: any) => {
+      const p = node?.properties || {};
+      const layout = p.dataMagazineLayout as MagazineLayout;
+      if (!['image', 'background', 'quote', 'split'].includes(layout)) return <section>{children}</section>;
+      return <MagazineBlock layout={layout} src={p.dataMagazineImage} alt={p.dataMagazineAlt}
+        caption={p.dataMagazineCaption} side={p.dataMagazineSide}>{children}</MagazineBlock>;
+    },
     hr: () => <hr className="my-10 border-t border-[#D8D2C6]" />,
-  };
+  }), []);
 
   return (
-    <div className="bg-[#F4F1EB] min-h-screen pt-28 pb-24" id="article-reader-view">
+    <div className="magazine-reader bg-[#F4F1EB] min-h-screen pt-28 pb-24" lang={lang === "zh" ? "zh-Hans" : "en"} id="article-reader-view">
       <div className="max-w-7xl mx-auto px-6 md:px-12 relative flex">
         <div className="flex-1">
 
@@ -719,6 +672,8 @@ export function ArticlePage({
                 <button
                   onClick={(e) => onBookmark(article.slug, e)}
                   className="p-2 border border-[#D8D2C6] hover:border-[#8B5A44] rounded-sm text-[#1C1C1C]/70 hover:text-[#8B5A44] transition-all cursor-pointer"
+                  aria-pressed={!!isBookmarked}
+                  aria-label={lang === "en" ? "Bookmark Article" : "收藏文章"}
                   title={lang === "en" ? "Bookmark Article" : "收藏文章"}
                   id="reader-bookmark-btn"
                 >
@@ -729,17 +684,20 @@ export function ArticlePage({
           </div>
 
           {/* TWO-COLUMN GRID: main content + sidebar */}
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_280px] lg:grid-cols-[1fr_320px] gap-12 lg:gap-16">
+          <div className="magazine-reader-grid">
 
             {/* MAIN ARTICLE COLUMN */}
-            <article ref={articleBodyRef} className="w-full max-w-[70ch] mx-auto lg:mx-0">
-              <p className="text-[11px] tracking-[0.25em] uppercase text-[#8B5A44] font-bold mb-4">
+            <article ref={articleBodyRef} className="magazine-article">
+              <header className="magazine-masthead">
+                <EditorialImage src={article.cover} decorative priority />
+              <p className="magazine-category">
                 {article.category[lang]}
               </p>
-              <h1 className="font-display text-[2rem] md:text-[2.75rem] leading-[1.15] text-[#1A2F24] mb-6">
+              <h1 className="magazine-title">
                 {article.title[lang]}
               </h1>
-              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-[#1C1C1C]/55 mb-10 border-b border-[#D8D2C6]/50 pb-6 font-display uppercase tracking-wide">
+              {article.excerpt[lang] && <p className="magazine-deck">{article.excerpt[lang]}</p>}
+              <div className="magazine-byline flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-[#1C1C1C]/55 mb-10 border-b border-[#D8D2C6]/50 pb-6 font-display uppercase tracking-wide">
                 <span className="flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5 text-[#8B5A44]" />
                   {article.date[lang]}
@@ -764,13 +722,14 @@ export function ArticlePage({
                 )}
               </div>
               
-              {/* Parallax Hero Image */}
+              </header>
+              {/* Original, full-quality cover remains visible as a separate editorial plate. */}
               {article.cover && (
                 <HeroImage src={article.cover} alt={article.title[lang]} />
               )}
 
               {/* Mobile Table of Contents */}
-              <div className="md:hidden mt-8 mb-8">
+              <div className="magazine-mobile-toc mt-8 mb-8">
                 <TableOfContents headings={headings} lang={lang} activeHeadingId={activeHeadingId} />
               </div>
 
@@ -780,8 +739,8 @@ export function ArticlePage({
               {/* Body Content */}
               <div className="prose-immersation">
                 <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeSanitize]}
+                  remarkPlugins={[remarkGfm, [remarkMagazine, { slug: article.slug, cover: article.cover }]]}
+                  rehypePlugins={[[rehypeSanitize, magazineSanitizeSchema]]}
                   components={markdownComponents}
                 >
                   {cleanedContent}
@@ -804,7 +763,7 @@ export function ArticlePage({
               <ReaderReflections articleSlug={article.slug} lang={lang} onPlayChime={onPlayChime} />
 
               {/* Mobile Sidebar Items */}
-              <div className="md:hidden mt-16 flex flex-col gap-8">
+              <div className="magazine-mobile-extras mt-16 flex flex-col gap-8">
                 <SidebarCard>
                   <SidebarPinterestWidget 
                     imageUrl={article.pinterestImageUrl || article.cover} 
@@ -826,7 +785,7 @@ export function ArticlePage({
             </article>
 
             {/* DESKTOP SIDEBAR */}
-            <aside className="hidden md:flex flex-col gap-8 sticky top-28 self-start h-fit w-full">
+            <aside className="magazine-sidebar flex-col gap-8 sticky top-28 self-start h-fit w-full">
               <TableOfContents headings={headings} lang={lang} activeHeadingId={activeHeadingId} />
 
               <div className="flex flex-col gap-8">
@@ -1308,7 +1267,7 @@ export default function ArticlesView({ lang, onBackToHome, onPlayChime, initialA
     return { en: defaultEn, zh: defaultZh };
   };
 
-  const articles = (propArticles || defaultArticles).map((art: any) => ({
+  const articles = useMemo(() => (propArticles || defaultArticles).map((art: any) => ({
     ...art,
     slug: art.slug || art.id || `art-${Math.random()}`,
     pillar: art.pillar || "general",
@@ -1320,7 +1279,7 @@ export default function ArticlesView({ lang, onBackToHome, onPlayChime, initialA
     readTime: ensureBilingual(art.readTime, "5 min read", "5 分钟阅读"),
     tags: art.tags || [],
     author: art.author,
-  }));
+  })), [propArticles]);
 
   // Track page views and cumulative reading time in localStorage
   useEffect(() => {
@@ -1403,7 +1362,8 @@ export default function ArticlesView({ lang, onBackToHome, onPlayChime, initialA
         }
       }
     };
-  }, [activeArticleSlug, articles]);
+  // A heading, bookmark or data refresh is not a new page view.
+  }, [activeArticleSlug]);
 
   const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null);
 
@@ -1430,7 +1390,7 @@ export default function ArticlesView({ lang, onBackToHome, onPlayChime, initialA
     );
 
     const timer = setTimeout(() => {
-      const headingElements = document.querySelectorAll('[id^="heading-"]');
+      const headingElements = document.querySelectorAll('#article-reader-view .prose-immersation [id]');
       headingElements.forEach((el) => observer.observe(el));
     }, 400);
 
@@ -1438,7 +1398,7 @@ export default function ArticlesView({ lang, onBackToHome, onPlayChime, initialA
       clearTimeout(timer);
       observer.disconnect();
     };
-  }, [activeArticleSlug, lang]);
+  }, [activeArticleSlug, lang, articles]);
 
   // Scroll reveal observer
   useEffect(() => {
@@ -1458,7 +1418,7 @@ export default function ArticlesView({ lang, onBackToHome, onPlayChime, initialA
       clearTimeout(timer);
       observer.disconnect();
     };
-  }, [activeArticleSlug, lang]);
+  }, [activeArticleSlug, lang, articles]);
 
   const filteredArticles = selectedPillar === "all"
     ? articles
