@@ -1,33 +1,51 @@
-# Article magazine reader
+# Immersation: The Living Journal
 
-Branch: `feature/editorial-magazine`. Local review only; do not push, merge or deploy without approval.
+Revision branch: `feature/living-journal`, based on production commit `5ad6c1d`. Review locally; do not merge or deploy without approval.
 
-## Architecture audit
+## Rendering architecture and preservation
 
-- `App.tsx` resolves `/articles/:slug`, normalizes bilingual fields, loads articles from defaults/local storage and then Supabase (the source of truth), and subscribes to article changes.
-- `ArticlesView.tsx` owns archive/detail navigation, bookmarks, local reading analytics, related articles and scrollspy. Its exported `ArticlePage` renders `article.content[lang]` through ReactMarkdown, GFM and rehype-sanitize. It removes the first source H1 because the page has its own title; this existing behavior is retained.
-- Heading components generate existing anchor IDs. The old scrollspy queried `heading-*` even though the renderer emitted unprefixed slugs. It now observes rendered body IDs and reattaches after asynchronous article loads. Page-view tracking remains keyed to navigation, so heading/bookmark updates do not create extra page views. Existing anchor URLs are retained.
-- Markdown renderers retain audio, source links, tables, code, captions and blockquotes. Paragraphs containing Markdown images now use valid block wrappers, while mixed inline image markup remains valid.
-- `ReaderReflections` and its Supabase queries, sharing/Pinterest, newsletter, ads, related articles, stats, bookmarks and all analytics IDs remain connected.
-- `SEOHead.tsx` remains the metadata authority: title, description, canonical, OG and JSON-LD. It and routing/data storage are unchanged. Existing client-rendered SEO behavior is preserved; this is not an SSR migration.
-- Brand: #F4F1EB paper, #1A2F24 display type, #1C1C1C body, #8B5A44 links, #B69A6B rules; existing Lora/Noto Serif SC. No replacement fonts, generated photography or packages.
+`App.tsx` resolves `/articles/:slug`, normalizes bilingual records and loads Supabase as the source of truth. `ArticlesView.tsx` owns archive/detail navigation, local bookmark and analytics state, related articles and IntersectionObserver scrollspy. `ArticlePage` renders `article.content[lang]` through ReactMarkdown, remark-gfm, the magazine AST pass and rehype-sanitize. The existing first-H1 removal, generated anchor IDs, routing callbacks and `SEOHead` metadata remain unchanged.
 
-## Presentation
+The revision changes article composition only. It does not modify stored copy, slugs, Supabase schema/policies, payment code, Content Studio, global navigation or SEO metadata. Reflections, sharing, bookmarks, analytics, audio, captions and related navigation retain their existing handlers. There are no added dependencies or generated images.
 
-The title uses a quiet cover-image wash, balanced serif typography and the existing excerpt/byline. A separate unfiltered, uncropped cover plate remains visible. The reading column is constrained, with a desktop sidebar at 1100px; tablet/mobile use the existing collapsible TOC and sidebar tools below the article. A reader-scoped overflow fix lets the sidebar and reading marker actually stick to the viewport; long sidebar tools remain scrollable. Images have reserved geometry, fallback and loading priorities. Decorative photos are hidden from assistive technology; the original text stays in the DOM.
+## The composition system
 
-`ArticleMagazine.tsx` exports reusable `EditorialImage` and `MagazineBlock` components. `magazine-markdown.ts` adds an allowlisted AST presentation pass before the existing sanitizer. No HTML parser, database migration or source-content mutation is involved.
+One `ArticlePage` and one `ArticleOpening` render all modes. An optional `article.presentation` selects the layout, either as a string or `{ mode: string }`. Human-readable, hyphenated and underscored names are accepted; absent/unknown values fall back to Premium Magazine. No presentation selector or persisted presentation field existed in the audited production code. This is an optional rendering API, not a Content Studio or database change.
 
-## Optional authoring directives
+| Mode | Opening | Image and reading scale |
+| --- | --- | --- |
+| `classic-editorial` | Linear title, deck, then metadata | 800px outer essay, 700px body, restrained headline |
+| `premium-magazine` | Desktop title/metadata aligned beside a supporting deck; stacked below 1024px | 1160px photographic spread, 700px body (680px Chinese) |
+| `visual-feature` | Image opens the story, followed by an inset title composition | 1160px photography; inset disappears on mobile |
 
-Place markers on separate lines **with a blank line before and after each marker**. Attributes are a single JSON object on the opening line. Supported layouts: `image`, `background`, `quote`, `split`. Only `src`, `alt`, `caption`, `side` are accepted. `side` is `left` (default) or `right`. Image sources accept HTTP(S) or root-relative public paths; script/data/blob/protocol-relative/authenticated URLs are rejected. Supply meaningful alt text for informative images; empty alt is decorative. Captions are plain text, not HTML.
+Examples: `presentation: 'Classic Editorial'`, `presentation: 'premium-magazine'`, or `presentation: { mode: 'visual-feature' }`. Existing article objects without this optional value continue working.
+
+The brand remains Parchment White #F4F1EB, Deep Cypress #1A2F24, Obsidian Ink #1C1C1C, Quiet Rust #8B5A44 and Muted Gold #B69A6B, using existing Lora/Noto Serif SC fonts. Desktop body text is 19px/1.85; mobile 17px/1.85; Chinese body leading is 2. Headlines use natural wrapping without inserted line breaks or rewritten text. Chinese titles use less compression and strict line breaking.
+
+The single hero is unfiltered and follows the source image's natural proportions. This removes the old fixed-frame letterboxing of panoramic covers. Noncritical media remains lazy-loaded; priority covers remain eager. Existing fallback geometry and safe-image URL checks remain. Accurate per-image dimensions are not stored in the existing article model; unusual aspect ratios can still adjust during first image decoding. No measured CLS claim is made.
+
+The TOC is closed initially at every width and opens in place. A thin progress rail replaces the permanent margin marker and uses Motion values without per-scroll React state updates. Promotional columns are removed: related articles, newsletter, optional ad and Pinterest all follow the article/reflections. The Pinterest image mounts only after its disclosure opens. Reflections use an unboxed form with clearer placeholders and explicit accessible labels. Reduced-motion/transparency and print rules remain scoped to the reader.
+
+## Reusable Markdown layouts
+
+`ArticleMagazine.tsx` exports `EditorialImage`, `MagazineBlock`, `ArticleOpening`, and `resolveArticlePresentation`. Existing `:::magazine` directives retain their syntax, Markdown contents, nesting and sanitization:
 
 ```markdown
-:::magazine background {"src":"https://example.com/existing-photo.jpg"}
+:::magazine image {"src":"/images/photo.jpg","alt":"Describe the existing photo","caption":"Existing caption"}
 
-## An existing section heading
+:::
 
-The original Markdown section goes here.
+:::magazine split {"src":"/images/photo.jpg","alt":"Describe the existing photo","side":"right"}
+
+## Existing heading
+
+Original Markdown body.
+
+:::
+
+:::magazine background {"src":"/images/another-photo.jpg"}
+
+Original section text.
 
 :::
 
@@ -36,33 +54,21 @@ The original Markdown section goes here.
 An exact quotation already in the article.
 
 :::
-
-:::magazine image {"src":"/images/existing-photo.jpg","alt":"Describe the photograph","caption":"Existing caption or credit"}
-
-:::
-
-:::magazine split {"src":"/images/existing-photo.jpg","alt":"Describe the photograph","side":"right"}
-
-## An existing heading
-
-Original text, links and formatting.
-
-:::
 ```
 
-Nesting is supported. Fenced/indented code blocks are not interpreted. Unknown attributes, invalid JSON and unclosed directives fall back to ordinary Markdown. Raw HTML remains inert. No arbitrary styles or event attributes cross sanitization. Ordinary Markdown needs no changes.
+Use blank lines around markers. Attributes are limited to `src`, `alt`, `caption`, `side`; layout is `image`, `split`, `background`, or `quote`. Image sources accept HTTP(S) or root-relative public paths; script/data/blob/protocol-relative/authenticated URLs are rejected. No raw HTML parser, custom styles or event handlers are admitted. Invalid, unknown or unclosed directives stay ordinary Markdown; fenced/indented code is never interpreted. Informative images need meaningful alt text; background images remain decorative, with all indexable copy rendered as real text.
 
-## Demonstration without rewriting content
+Background photography is now opt-in only, at 7% opacity on parchment. The automatic repeated-cover background section has been removed. The manual-chores article retains only the existing exact bilingual sentence styled as a pull quote; it appears once and in its original position. Explicit directives still override that automatic quotation treatment.
 
-At `/articles/mindfulness-through-manual-chores`, a presentation-only AST decorator styles the existing emphasized sentence “The chore stays the same. Your attention changes.” (or its existing Chinese equivalent) as a pull quote, and wraps the existing “The strange luxury of having only one thing to do” section (or its Chinese equivalent) with the article's own faded cover. Text appears once, in the original sequence. Explicit directives override this automatic demo styling. The stored article, bilingual copy and factual claims are untouched.
-
-## Local preview
+## Local review
 
 ```sh
 npm ci
 npm run dev
 ```
 
-Open http://localhost:3000/articles/mindfulness-through-manual-chores . Use the existing EN / 中文 navigation controls. The demonstration article lives in the existing Supabase project, not the checked-in default article list. Configure `VITE_SUPABASE_URL` and a public anon/publishable key in ignored `.env.local` for the actual data; never use a service-role key in Vite. This workspace has a read-only public configuration prepared. Without it, default articles still preview normally, but this database-only slug is absent.
+Open `http://localhost:3000/articles/mindfulness-through-manual-chores` and `http://localhost:3000/articles/why-real-growth-feels-like-going-backward`. Use the site language controls. Public Supabase URL and anon/publishable key must be configured in ignored `.env.local` to read these database-only articles. Never place a service-role key in a Vite variable. This workspace already has public preview configuration.
 
-Checks: `npm run lint`, `npm test`, `npm run build`. No payment credentials or server service-role key are needed for article preview. Do not submit reflections, subscription forms, or editor changes against production during local visual review.
+Open `http://localhost:3000/docs/journal-preview.html` for a local mode selector and bilingual toggle using the same ArticlePage. It reads the existing manual-chores record, falls back to a bundled essay if unavailable, and prevents form submissions in capture phase. It does not persist presentation choices. Vite's production entry is index.html; this dev-only review HTML is not built as a production route.
+
+Validation: `npm run lint`, `npm test`, `npm run build`. Visual review targets 1440×1000, 768×1024 and 390×844. Do not submit production reflection/newsletter forms during review.

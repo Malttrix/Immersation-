@@ -34,3 +34,16 @@ export function MagazineBlock({ layout, src, alt, caption, side, children }: {
     <EditorialImage src={src} decorative /><div className="magazine-photo-copy">{children}</div>
   </section>;
 }
+
+/** A shared opening supports distinct compositions without duplicating article markup. */
+export type ArticlePresentation = 'classic-editorial' | 'premium-magazine' | 'visual-feature';
+export function resolveArticlePresentation(value: unknown): ArticlePresentation {
+  const mode = typeof value === 'object' && value ? (value as { mode?: unknown }).mode : value;
+  const key = typeof mode === 'string' ? mode.toLowerCase().replace(/[ _]/g, '-') : '';
+  if (['classic', 'editorial', 'classic-editorial'].includes(key)) return 'classic-editorial';
+  if (['visual', 'feature', 'visual-feature'].includes(key)) return 'visual-feature';
+  return 'premium-magazine';
+}
+export function ArticleOpening({ children, hero }: { children: React.ReactNode; hero?: React.ReactNode }) {
+  return <div className="journal-opening">{children}{hero}</div>;
+}

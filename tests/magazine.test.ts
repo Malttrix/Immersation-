@@ -57,7 +57,7 @@ test('demo decorates exact existing EN/ZH text without removing or duplicating i
     const html=render(source,{slug:'mindfulness-through-manual-chores',cover:'https://example.com/cover.jpg'});
     assert.equal(html.split(quote).length-1,1);
     assert.match(html,/data-magazine-layout="quote"/);
-    assert.match(html,/data-magazine-layout="background"/);
+    assert.doesNotMatch(html,/data-magazine-layout="background"/);
     assert.ok(html.indexOf('Before')<html.indexOf(quote)&&html.indexOf('Original paragraph.')<html.indexOf('After'));
     assert.doesNotMatch(render(source,{slug:'another-article'}),/data-magazine-layout/);
   }
@@ -70,4 +70,15 @@ test('media reserves geometry, lazy loads noncritical images and provides an acc
   assert.match(fallback,/aria-label="A kitchen"/);assert.doesNotMatch(fallback,/<img/);
   const background=renderToStaticMarkup(React.createElement(MagazineBlock,{layout:'background',src:'https://example.com/photo.jpg'},React.createElement('p',null,'Indexable original text')));
   assert.match(background,/aria-hidden="true"/);assert.match(background,/<p>Indexable original text<\/p>/);
+});
+
+test('presentation metadata accepts friendly aliases and falls back without changing content', async () => {
+  const { resolveArticlePresentation, ArticleOpening } = await import('../src/components/ArticleMagazine');
+  for (const value of ['Classic Editorial', 'classic_editorial', 'classic', {mode:'classic-editorial'}]) assert.equal(resolveArticlePresentation(value), 'classic-editorial');
+  for (const value of ['Visual Feature', 'visual', {mode:'visual-feature'}]) assert.equal(resolveArticlePresentation(value), 'visual-feature');
+  for (const value of [undefined, null, 'unknown', 'Premium Magazine', {}]) assert.equal(resolveArticlePresentation(value), 'premium-magazine');
+  const html = renderToStaticMarkup(React.createElement(ArticleOpening, {hero:React.createElement('img',{src:'/photo.jpg',alt:'Existing cover'}), children:React.createElement('h1',null,'Original title')}));
+  assert.equal((html.match(/<h1>/g)||[]).length,1);
+  assert.equal((html.match(/<img /g)||[]).length,1);
+  assert.ok(html.indexOf('Original title') < html.indexOf('Existing cover'));
 });

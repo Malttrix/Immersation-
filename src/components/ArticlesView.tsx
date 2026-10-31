@@ -2,13 +2,13 @@ import { subscribeToSendfox } from "../lib/sendfox";
 import { defaultArticles } from "../articlesData";
 import { supabase } from "../lib/supabase";
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { motion, useScroll, useTransform, useReducedMotion } from "motion/react";
+import { motion, useScroll, useReducedMotion } from "motion/react";
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
 import remarkMagazine, { magazineSanitizeSchema, type MagazineLayout } from "../lib/magazine-markdown";
-import { EditorialImage, MagazineBlock } from "./ArticleMagazine";
+import { EditorialImage, MagazineBlock, ArticleOpening, resolveArticlePresentation } from "./ArticleMagazine";
 import { 
   ArrowLeft, 
   ArrowRight, 
@@ -31,17 +31,7 @@ import {
   Eye
 } from "lucide-react";
 
-/**
- * ============================================================================
- * ACCESSIBILITY & PREFERS-REDUCED-MOTION SPECIFICATION:
- * All motion components check `useReducedMotion()`. When `prefers-reduced-motion: reduce`
- * is enabled in the user's OS or browser preferences:
- * - All transform-based animations (scaleX underline triggers,
- *   sidebar card entrances, and sidebar transforms) are automatically disabled.
- * - The components fall back immediately to instant 100% opacity and static layouts,
- *   ensuring full compliance with WCAG 2.1 AAA motion guidelines.
- * ============================================================================
- */
+/** Article content remains static and indexable; interactions respect reduced motion. */
 
 interface ArticlesViewProps {
   lang: "en" | "zh";
@@ -68,11 +58,13 @@ export interface Article {
   cover?: string;
   author?: string;
   adUrl?: string;
+  /** Optional presentation metadata; absent/unknown values use Premium Magazine. */
+  presentation?: string | { mode?: string };
 }
 
 // ----------------------------------------------------------------------------
 // 1. READING PROGRESS MARKER
-// Scroll-linked marker in the right margin moving along a vertical track (0-100%)
+// A thin viewport rail uses a Motion value without React updates on every scroll.
 // ----------------------------------------------------------------------------
 export function ReadingProgressMarker({
   targetRef,
@@ -81,61 +73,15 @@ export function ReadingProgressMarker({
   targetRef: React.RefObject<HTMLElement | null>;
   lang: "en" | "zh";
 }) {
-  const shouldReduceMotion = useReducedMotion();
-  const { scrollYProgress } = useScroll({
-    target: targetRef,
-    offset: ["start start", "end end"],
-  });
-
-  const progressTop = useTransform(scrollYProgress, [0, 1], ["0%", "100%"]);
-  const progressPercent = useTransform(scrollYProgress, [0, 1], [0, 100]);
-  const [pct, setPct] = useState(0);
-
-  useEffect(() => {
-    return progressPercent.on("change", (latest) => {
-      setPct(Math.round(Math.min(100, Math.max(0, latest))));
-    });
-  }, [progressPercent]);
-
-  return (
-    <aside
-      aria-label={lang === "en" ? "Reading progress" : "阅读进度"}
-      className="hidden xl:flex flex-col items-center sticky top-36 h-[320px] ml-6 shrink-0 select-none pointer-events-none"
-    >
-      {/* Top percentage label */}
-      <span className="font-mono text-[9px] uppercase tracking-widest text-[#8B5A44] font-semibold mb-2">
-        {pct}%
-      </span>
-
-      {/* Vertical track line */}
-      <div className="w-[2px] bg-[#D8D2C6]/60 flex-1 relative rounded-full overflow-hidden">
-        <motion.div
-          className="w-full bg-[#B69A6B] origin-top h-full"
-          style={{ scaleY: shouldReduceMotion ? 1 : scrollYProgress }}
-        />
-      </div>
-
-      {/* Moving progress dot along the track */}
-      <div className="w-[2px] h-full absolute top-6 bottom-4 left-1/2 -translate-x-1/2">
-        <motion.div
-          className="w-3.5 h-3.5 rounded-full bg-[#B69A6B] border-2 border-[#F4F1EB] shadow-md absolute -left-[6px] -top-1.5 flex items-center justify-center"
-          style={{ top: shouldReduceMotion ? "100%" : progressTop }}
-        >
-          <span className="w-1 h-1 rounded-full bg-white" />
-        </motion.div>
-      </div>
-
-      {/* Bottom label */}
-      <span className="font-display text-[8px] uppercase tracking-widest text-[#1C1C1C]/40 mt-2 font-bold">
-        {lang === "en" ? "READ" : "阅读"}
-      </span>
-    </aside>
-  );
+  const { scrollYProgress } = useScroll({ target: targetRef, offset: ["start start", "end end"] });
+  return <div className="journal-progress" role="img" aria-label={lang === "en" ? "Reading progress" : "阅读进度"}>
+    <motion.div style={{ scaleX: scrollYProgress }} />
+  </div>;
 }
 
 // ----------------------------------------------------------------------------
 // 2. ACTIVE TABLE OF CONTENTS
-// Detects active viewport heading & applies gold left border (#B69A6B) + bold state
+// Discreet collapsed navigation retains heading anchors and active state.
 // ----------------------------------------------------------------------------
 export function TableOfContents({
   headings,
@@ -146,14 +92,15 @@ export function TableOfContents({
   lang: "en" | "zh";
   activeHeadingId?: string | null;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
 
   if (headings.length === 0) return null;
 
   return (
-    <div className="border border-[#D8D2C6] rounded-sm bg-white/60 p-4 flex flex-col max-h-[42vh] shadow-2xs">
+    <div className="journal-toc">
       <button
         aria-expanded={open}
+        aria-controls="journal-contents"
         onClick={() => setOpen(!open)}
         className="flex items-center justify-between w-full text-[11px] tracking-[0.2em] uppercase text-[#1A2F24] font-bold shrink-0 cursor-pointer"
       >
@@ -161,7 +108,7 @@ export function TableOfContents({
         <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <ul className="mt-3 flex flex-col gap-1.5 overflow-y-auto pr-1 toc-scroll">
+        <ul id="journal-contents" className="mt-5 flex flex-col gap-2 overflow-y-auto pr-1 toc-scroll">
           {headings.map((h, i) => {
             const headingId = h.id;
             const isActive = activeHeadingId === headingId;
@@ -199,8 +146,8 @@ export function TableOfContents({
 }
 
 // ----------------------------------------------------------------------------
-// 3. SECTION HEADING REVEAL (ArticleHeading)
-// H2 headings with a 2px gold underline (#B69A6B) animating scaleX from 0 to 1 on entry
+// 3. EDITORIAL SECTION HEADING (ArticleHeading)
+// Static section hierarchy with stable heading anchors.
 // ----------------------------------------------------------------------------
 export function ArticleHeading({
   id,
@@ -213,47 +160,8 @@ export function ArticleHeading({
   level?: 1 | 2 | 3 | 4;
   className?: string;
 }) {
-  const shouldReduceMotion = useReducedMotion();
-
-  if (level === 2) {
-    return (
-      <div id={id} className="pt-10 pb-3 scroll-mt-24 group relative">
-        <h2 className={`font-serif text-2xl sm:text-3xl font-semibold text-[#1A2F24] ${className}`}>
-          {children}
-        </h2>
-        {/* Gold underline scaleX 0 to 1 transition (400ms, ease-out) */}
-        <motion.div
-          className="h-[2px] bg-[#B69A6B] mt-2 origin-left"
-          initial={{ scaleX: shouldReduceMotion ? 1 : 0 }}
-          whileInView={{ scaleX: 1 }}
-          viewport={{ once: true, margin: "-40px" }}
-          transition={{ duration: shouldReduceMotion ? 0 : 0.4, ease: "easeOut" }}
-        />
-      </div>
-    );
-  }
-
-  if (level === 3) {
-    return (
-      <h3 id={id} className={`font-serif text-xl sm:text-2xl font-medium text-[#1A2F24] pt-8 pb-2 border-b border-[#D8D2C6]/30 scroll-mt-24 ${className}`}>
-        {children}
-      </h3>
-    );
-  }
-
-  if (level === 4) {
-    return (
-      <h4 id={id} className={`font-serif text-lg font-semibold text-[#1A2F24] pt-6 pb-1 scroll-mt-24 ${className}`}>
-        {children}
-      </h4>
-    );
-  }
-
-  return (
-    <h1 className={`font-serif text-3xl sm:text-4xl font-bold text-[#1A2F24] pt-12 pb-4 border-b border-[#D8D2C6] ${className}`}>
-      {children}
-    </h1>
-  );
+  const Heading = `h${level}` as 'h1' | 'h2' | 'h3' | 'h4';
+  return <Heading id={id} className={`journal-heading journal-heading-${level} ${className}`}>{children}</Heading>;
 }
 
 // ----------------------------------------------------------------------------
@@ -455,6 +363,8 @@ export function ArticlePage({
   activeHeadingId,
 }: ArticlePageProps) {
   const articleBodyRef = useRef<HTMLElement>(null);
+  const [pinterestOpen, setPinterestOpen] = useState(false);
+  const presentation = resolveArticlePresentation(article.presentation);
 
   const generateSlug = (text: string) => {
     return text.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-').replace(/(^-|-$)/g, '');
@@ -653,12 +563,12 @@ export function ArticlePage({
   }), []);
 
   return (
-    <div className="magazine-reader bg-[#F4F1EB] min-h-screen pt-28 pb-24" lang={lang === "zh" ? "zh-Hans" : "en"} id="article-reader-view">
-      <div className="max-w-7xl mx-auto px-6 md:px-12 relative flex">
+    <div className="magazine-reader journal-reader" data-presentation={presentation} lang={lang === "zh" ? "zh-Hans" : "en"} id="article-reader-view">
+      <div className="journal-shell">
         <div className="flex-1">
 
           {/* Top navigation bar */}
-          <div className="flex justify-between items-center border-b border-[#D8D2C6]/50 pb-6 mb-12" id="reader-top-bar">
+          <div className="flex justify-between items-center border-b border-[#D8D2C6]/50 pb-4 mb-0" id="reader-top-bar">
             <button
               onClick={onBack}
               className="group flex items-center gap-2.5 font-display text-[11px] font-bold tracking-[0.25em] text-[#1A2F24] hover:text-[#8B5A44] transition-colors uppercase cursor-pointer"
@@ -667,6 +577,7 @@ export function ArticlePage({
               <ArrowLeft className="w-4 h-4 transform group-hover:-translate-x-1 transition-transform" />
               {lang === "en" ? "BACK TO ARTICLES" : "返回文章列表"}
             </button>
+            <span className="journal-name">{lang === "en" ? "The Living Journal" : "生活志"}</span>
             <div className="flex items-center gap-4" id="reader-actions">
               {onBookmark && (
                 <button
@@ -683,38 +594,36 @@ export function ArticlePage({
             </div>
           </div>
 
-          {/* TWO-COLUMN GRID: main content + sidebar */}
+          {/* Shared reading-first composition across all presentation modes. */}
           <div className="magazine-reader-grid">
 
             {/* MAIN ARTICLE COLUMN */}
             <article ref={articleBodyRef} className="magazine-article">
+              <ArticleOpening hero={article.cover ? <HeroImage src={article.cover} alt={article.title[lang]} /> : null}>
               <header className="magazine-masthead">
-                <EditorialImage src={article.cover} decorative priority />
               <p className="magazine-category">
                 {article.category[lang]}
               </p>
               <h1 className="magazine-title">
                 {article.title[lang]}
               </h1>
+
               {article.excerpt[lang] && <p className="magazine-deck">{article.excerpt[lang]}</p>}
-              <div className="magazine-byline flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-[#1C1C1C]/55 mb-10 border-b border-[#D8D2C6]/50 pb-6 font-display uppercase tracking-wide">
+              <div className="magazine-byline flex flex-wrap items-center font-display uppercase tracking-wide">
                 <span className="flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5 text-[#8B5A44]" />
                   {article.date[lang]}
                 </span>
-                <span className="text-[#D8D2C6]">•</span>
                 <span className="flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-[#8B5A44]" />
                   {article.readTime[lang]}
                 </span>
-                <span className="text-[#D8D2C6]">•</span>
-                <span className="flex items-center gap-1.5 font-medium text-[#1A2F24] normal-case tracking-normal">
+                <span className="journal-author flex items-center gap-1.5 font-medium text-[#1A2F24] normal-case tracking-normal">
                   {lang === "en" ? "By" : "作者"} {article.author || (lang === "en" ? "Immersation Editor" : "智枢阁编辑部")}
                 </span>
                 {activeArticleStats && (
                   <>
-                    <span className="text-[#D8D2C6]">•</span>
-                    <span className="flex items-center gap-1.5" title={lang === "en" ? "Unique Pageviews" : "独立网页阅览量"}>
+                        <span className="flex items-center gap-1.5" title={lang === "en" ? "Unique Pageviews" : "独立网页阅览量"}>
                       <Eye className="w-3.5 h-3.5 text-[#8B5A44]" />
                       {activeArticleStats.views.toLocaleString()} {lang === "en" ? "views" : "次阅览"}
                     </span>
@@ -723,18 +632,13 @@ export function ArticlePage({
               </div>
               
               </header>
-              {/* Original, full-quality cover remains visible as a separate editorial plate. */}
-              {article.cover && (
-                <HeroImage src={article.cover} alt={article.title[lang]} />
-              )}
+              </ArticleOpening>
 
-              {/* Mobile Table of Contents */}
-              <div className="magazine-mobile-toc mt-8 mb-8">
+              {/* Contents stay collapsed until requested, at every width. */}
+              <div className="journal-reading-tools">
                 <TableOfContents headings={headings} lang={lang} activeHeadingId={activeHeadingId} />
               </div>
 
-              {/* Top Share Bar */}
-              <ShareBar article={article} lang={lang} />
 
               {/* Body Content */}
               <div className="prose-immersation">
@@ -748,13 +652,13 @@ export function ArticlePage({
               </div>
 
               {/* Article Tags */}
-              <div className="flex flex-wrap gap-2 mt-12 pt-8 border-t border-[#D8D2C6]/50">
+              {article.tags.length > 0 && <div className="journal-tags flex flex-wrap gap-4 mt-12 pt-8 border-t border-[#D8D2C6]/50">
                 {article.tags.map((tag) => (
                   <span key={tag} className="text-[11px] uppercase tracking-wide text-[#1C1C1C]/60 border border-[#D8D2C6] rounded-full px-3 py-1">
                     {tag}
                   </span>
                 ))}
-              </div>
+              </div>}
 
               {/* Bottom Share Bar */}
               <ShareBar article={article} lang={lang} />
@@ -762,61 +666,27 @@ export function ArticlePage({
               {/* Reader Reflections */}
               <ReaderReflections articleSlug={article.slug} lang={lang} onPlayChime={onPlayChime} />
 
-              {/* Mobile Sidebar Items */}
-              <div className="magazine-mobile-extras mt-16 flex flex-col gap-8">
-                <SidebarCard>
-                  <SidebarPinterestWidget 
-                    imageUrl={article.pinterestImageUrl || article.cover} 
-                    altText={article.title[lang]} 
-                    lang={lang} 
-                    pageUrl={typeof window !== "undefined" ? window.location.href : undefined}
-                  />
-                </SidebarCard>
-                <SidebarCard>
+              <footer className="journal-afterword">
+                {relatedArticles.length > 0 && <section className="journal-related">
+                  <SidebarRelated articles={relatedArticles} lang={lang} onNavigate={onNavigate || (() => {})} />
+                </section>}
+                <div className="journal-support">
                   <SidebarNewsletterCTA lang={lang} />
-                </SidebarCard>
-                {article.adUrl && (
-                  <SidebarCard>
-                    <SidebarAdSlot lang={lang} slotId="mobile-inline" adUrl={article.adUrl} />
-                  </SidebarCard>
-                )}
-                <SidebarRelated articles={relatedArticles} lang={lang} onNavigate={onNavigate ? onNavigate : () => {}} />
-              </div>
+                  <details className="journal-pinterest" onToggle={e => setPinterestOpen(e.currentTarget.open)}>
+                    <summary>{lang === "en" ? "Save this story on Pinterest" : "在 Pinterest 上收藏这篇文章"}</summary>
+                    {pinterestOpen && <SidebarPinterestWidget imageUrl={article.pinterestImageUrl || article.cover}
+                      altText={article.title[lang]} lang={lang}
+                      pageUrl={typeof window !== "undefined" ? window.location.href : undefined} />}
+                  </details>
+                </div>
+                {article.adUrl && <SidebarAdSlot lang={lang} slotId="article-afterword" adUrl={article.adUrl} />}
+              </footer>
             </article>
-
-            {/* DESKTOP SIDEBAR */}
-            <aside className="magazine-sidebar flex-col gap-8 sticky top-28 self-start h-fit w-full">
-              <TableOfContents headings={headings} lang={lang} activeHeadingId={activeHeadingId} />
-
-              <div className="flex flex-col gap-8">
-                <SidebarCard>
-                  <SidebarPinterestWidget
-                    imageUrl={article.pinterestImageUrl || article.cover}
-                    altText={article.title[lang]}
-                    lang={lang}
-                    pageUrl={typeof window !== "undefined" ? window.location.href : undefined}
-                  />
-                </SidebarCard>
-                <SidebarCard>
-                  <SidebarNewsletterCTA lang={lang} />
-                </SidebarCard>
-                <SidebarRelated
-                  articles={relatedArticles}
-                  lang={lang}
-                  onNavigate={onNavigate ? onNavigate : () => {}}
-                />
-                {article.adUrl && (
-                  <SidebarCard>
-                    <SidebarAdSlot lang={lang} slotId="sidebar-bottom" adUrl={article.adUrl} />
-                  </SidebarCard>
-                )}
-              </div>
-            </aside>
 
           </div>
         </div>
 
-        {/* Vertical Reading Progress Tracker in Right Margin */}
+        {/* Restrained reading progress below the site navigation. */}
         <ReadingProgressMarker targetRef={articleBodyRef} lang={lang} />
       </div>
     </div>
@@ -1022,6 +892,7 @@ function SidebarNewsletterCTA({ lang }: { lang: "en" | "zh" }) {
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            aria-label={lang === "en" ? "Your email" : "您的邮箱"}
             placeholder={lang === "en" ? "Your email" : "您的邮箱"}
             className="w-full bg-transparent border border-[#D8D2C6]/40 rounded-sm px-3 py-2 text-sm text-[#F4F1EB] placeholder:text-[#D8D2C6]/50"
           />
@@ -2361,6 +2232,7 @@ function ReaderReflections({ articleSlug, lang, onPlayChime }: { articleSlug: st
               onChange={(e) => setName(e.target.value)}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
+              aria-label={lang === "en" ? "Your name" : "您的称呼"}
               placeholder={lang === "en" ? "Your name" : "您的称呼"}
               className="w-full bg-transparent text-sm font-medium text-[#1C1C1C] outline-none placeholder:text-[#bab9b4] placeholder:font-normal mb-3"
               required
@@ -2370,6 +2242,7 @@ function ReaderReflections({ articleSlug, lang, onPlayChime }: { articleSlug: st
               onChange={(e) => setMessage(e.target.value)}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
+              aria-label={lang === "en" ? "Your reflection" : "您的思考"}
               placeholder={lang === "en" ? "Share your reflection on this piece..." : "分享你对这篇文章的思考..."}
               rows={3}
               className="w-full bg-transparent text-sm text-[#1C1C1C] outline-none resize-none placeholder:text-[#bab9b4] leading-relaxed"
