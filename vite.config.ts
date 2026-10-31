@@ -9,6 +9,7 @@ export default defineConfig(({ mode }) => {
   assertPublicEnvironment(loadEnv(mode, process.cwd(), 'VITE_'));
   return {
     plugins: [react(), tailwindcss()],
+    build: { rollupOptions: { input: { main: path.resolve("index.html"), articlePreview: path.resolve("studio-preview.html") } } },
     resolve: {
       alias: {
         '@': path.dirname(fileURLToPath(import.meta.url)),

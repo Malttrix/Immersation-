@@ -1,3 +1,5 @@
+import { useArticleHeadingSpy } from "./ArticleReadingTools";
+import { readingTime } from "../lib/article-studio";
 import { subscribeToSendfox } from "../lib/sendfox";
 import { defaultArticles } from "../articlesData";
 import { supabase } from "../lib/supabase";
@@ -60,6 +62,9 @@ export interface Article {
   pinterestImageUrl?: string;
   cover?: string;
   author?: string;
+  coverAlt?: {en?:string;zh?:string};
+  coverCaption?: {en?:string;zh?:string};
+  readTimeAutomatic?: boolean;
   adUrl?: string;
   /** Optional presentation metadata; absent/unknown values use Premium Magazine. */
   presentation?: string | { mode?: string };
@@ -135,13 +140,14 @@ export function SidebarCard({
 export function HeroImage({
   src,
   alt,
-  className = "", treatment = "complete", focal,
+  className = "", treatment = "complete", focal, caption,
 }: {
   src: string;
   alt: string;
+  caption?: string;
   className?: string; treatment?: "complete" | "photograph"; focal?: string;
 }) {
-  return <EditorialImage src={src} alt={alt} priority treatment={treatment} focal={focal} aspect="16/9" className={`magazine-cover ${className}`} />;
+  return <EditorialImage src={src} alt={alt} caption={caption} priority treatment={treatment} focal={focal} aspect="16/9" className={`magazine-cover ${className}`} />;
 }
 
 // ----------------------------------------------------------------------------
@@ -259,6 +265,7 @@ export function ShareBar({
 }
 
 export interface ArticlePageProps {
+  preview?: boolean;
   article: Article;
   lang: "en" | "zh";
   onBack: () => void;
@@ -282,6 +289,7 @@ export function ArticlePage({
   onPlayChime,
   activeArticleStats,
   activeHeadingId,
+  preview = false,
 }: ArticlePageProps) {
   const articleBodyRef = useRef<HTMLDivElement>(null);
   const progress = useArticleReadingProgress(articleBodyRef, `${article.slug}:${lang}`);
@@ -479,7 +487,7 @@ export function ArticlePage({
       if (!['image', 'background', 'quote', 'split'].includes(layout)) return <section>{children}</section>;
       return <MagazineBlock layout={layout} src={p.dataMagazineImage} alt={p.dataMagazineAlt}
         caption={p.dataMagazineCaption} side={p.dataMagazineSide} intensity={p.dataMagazineIntensity}
-        focal={p.dataMagazineFocal} fit={p.dataMagazineFit} aspect={p.dataMagazineAspect}>{children}</MagazineBlock>;
+        focal={p.dataMagazineFocal} overlay={p.dataMagazineOverlay} mobileSrc={p.dataMagazineMobileImage} mobileFallback={p.dataMagazineMobileFallback} fit={p.dataMagazineFit} aspect={p.dataMagazineAspect}>{children}</MagazineBlock>;
     },
     hr: () => <hr className="my-10 border-t border-[#D8D2C6]" />,
   }), []);
@@ -521,7 +529,7 @@ export function ArticlePage({
 
             {/* MAIN ARTICLE COLUMN */}
             <article className="magazine-article">
-              <ArticleOpening hero={article.cover ? <HeroImage src={article.cover} alt={article.title[lang]} treatment={article.editorial?.coverTreatment} focal={article.editorial?.coverFocal} /> : null}>
+              <ArticleOpening hero={article.cover ? <HeroImage src={article.cover} alt={article.coverAlt?.[lang] || article.title[lang]} caption={article.coverCaption?.[lang]} treatment={article.editorial?.coverTreatment} focal={article.editorial?.coverFocal} /> : null}>
               <MagazineHeader>
               <p className="magazine-category">
                 {article.category[lang]}
@@ -538,7 +546,7 @@ export function ArticlePage({
                 </span>
                 <span className="flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-[#8B5A44]" />
-                  {article.readTime[lang]}
+                  {readingTime(article, lang)}
                 </span>
                 <span className="journal-author flex items-center gap-1.5 font-medium text-[#1A2F24] normal-case tracking-normal">
                   {lang === "en" ? "By" : "作者"} {article.author || (lang === "en" ? "Immersation Editor" : "智枢阁编辑部")}
@@ -593,14 +601,14 @@ export function ArticlePage({
               <ShareBar article={article} lang={lang} />
               
               {/* Reader Reflections */}
-              <ReaderReflections articleSlug={article.slug} lang={lang} onPlayChime={onPlayChime} />
+              {!preview && <ReaderReflections articleSlug={article.slug} lang={lang} onPlayChime={onPlayChime} />}
 
               <footer className="journal-afterword">
                 {relatedArticles.length > 0 && <section className="journal-related">
                   <SidebarRelated articles={relatedArticles} lang={lang} onNavigate={onNavigate || (() => {})} />
                 </section>}
                 <div className="journal-support">
-                  <SidebarNewsletterCTA lang={lang} />
+                  {!preview && <SidebarNewsletterCTA lang={lang} />}
                 </div>
                 {article.adUrl && <SidebarAdSlot lang={lang} slotId="article-afterword" adUrl={article.adUrl} />}
               </footer>
@@ -1159,27 +1167,8 @@ export default function ArticlesView({ lang, onBackToHome, onPlayChime, initialA
   // A heading, bookmark or data refresh is not a new page view.
   }, [activeArticleSlug]);
 
-  const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null);
 
-  const { scrollY: articleScrollY } = useScroll();
-  // Recompute after jumps as well as incremental scrolling; update React only on section changes.
-  useEffect(() => {
-    if (!activeArticleSlug) return;
-    let frame = 0;
-    setActiveHeadingId(null);
-    const measure = () => {
-      frame = 0;
-      const headings = Array.from(document.querySelectorAll<HTMLElement>('#article-reader-view .prose-immersation [id]'));
-      let next: string | null = null;
-      for (const heading of headings) { if (heading.getBoundingClientRect().top <= 160) next = heading.id; else break; }
-      setActiveHeadingId(previous => previous === next ? previous : next);
-    };
-    const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
-    const unsubscribe = articleScrollY.on('change', schedule);
-    const timer = window.setTimeout(schedule, 400);
-    window.addEventListener('resize', schedule, { passive: true });
-    return () => { unsubscribe(); clearTimeout(timer); cancelAnimationFrame(frame); window.removeEventListener('resize', schedule); };
-  }, [activeArticleSlug, lang, articles, articleScrollY]);
+  const activeHeadingId = useArticleHeadingSpy(`${activeArticleSlug}:${lang}:${articles.find(a=>a.slug===activeArticleSlug)?.content?.[lang] || ''}`);
 
   // Scroll reveal observer
   useEffect(() => {
@@ -1759,7 +1748,7 @@ export default function ArticlesView({ lang, onBackToHome, onPlayChime, initialA
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="flex items-center gap-1 font-display text-[10px] text-[#1C1C1C]/40 mr-3">
                           <Clock className="w-3.5 h-3.5 text-[#8B5A44]/60" />
-                          {article.readTime[lang]}
+                          {readingTime(article, lang)}
                         </span>
                         {article.tags.map(tag => (
                           <span key={tag} className="font-mono text-[9px] text-[#1C1C1C]/50 bg-[#E8DDCF]/30 px-2.5 py-0.5 rounded-xs">

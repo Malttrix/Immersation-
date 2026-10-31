@@ -31,6 +31,13 @@ export interface Article {
   author?: string;
   canonicalLink?: string;
   published?: boolean;
+  studio?: Record<string, any>;
+  studio_revision?: number;
+  presentation?: string | {mode?:string};
+  editorial?: Record<string, any>;
+  coverAlt?: {en?:string;zh?:string};
+  coverCaption?: {en?:string;zh?:string};
+  readTimeAutomatic?: boolean;
 }
 
 export const defaultArticles: Article[] = [

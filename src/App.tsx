@@ -1,3 +1,4 @@
+import { hydrateArticle, articleIsPublic } from "./lib/article-studio";
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -368,7 +369,7 @@ const sanitizeBooks = (items: any[]): any[] => {
 const sanitizeArticles = (items: any[]): any[] => {
   const seen = new Set<string>();
   const uniqueItems: any[] = [];
-  (items || []).forEach(a => {
+  (items || []).map(hydrateArticle).forEach(a => {
     if (!a) return;
     const identifier = a.id || a.slug || `generated-art-id-${Math.random()}`;
     if (!seen.has(identifier)) {
@@ -460,39 +461,14 @@ export default function App() {
     return sanitizeArticles(initial);
   });
 
+  const visibleArticles = articles.filter(a=>articleIsPublic(a));
+
   useEffect(() => {
     localStorage.setItem("immersation_articles", JSON.stringify(articles));
   }, [articles]);
 
   // Fetch articles from Supabase to ensure live sync
   useEffect(() => {
-    // 1. First fetch server-side synced articles cache (from local filesystem workspace)
-    fetch("/api/articles")
-      .then(res => res.json())
-      .then(data => {
-        if (data.success && data.articles && Array.isArray(data.articles) && data.articles.length > 0) {
-          setArticles(prev => {
-            let merged = [...prev];
-            data.articles.forEach((serverArt: any) => {
-              const serverId = serverArt.id || serverArt.slug;
-              const existingIdx = merged.findIndex(a => (a.id || a.slug) === serverId);
-              if (existingIdx !== -1) {
-                const existing = merged[existingIdx];
-                const existingTime = new Date(existing.updatedAt || 0).getTime();
-                const serverTime = new Date(serverArt.updatedAt || 0).getTime();
-                if (serverTime > existingTime) {
-                  merged[existingIdx] = { ...existing, ...serverArt };
-                }
-              } else {
-                merged.push(serverArt);
-              }
-            });
-            return sanitizeArticles(merged);
-          });
-        }
-      })
-      .catch(err => console.error("Error loading server articles sync cache:", err));
-
     // 2. Fetch from Supabase if configured
     let articlesSubscription: any = null;
     if (supabase) {
@@ -1744,7 +1720,7 @@ export default function App() {
   return (
     <div id="immersation-app" ref={mainContainerRef} className="relative bg-[#F4F1EB] min-h-screen overflow-x-hidden selection:bg-[#1A2F24] selection:text-[#F4F1EB] antialiased">
       {/* Dynamic SEO Head Manager */}
-      <SEOHead activeView={activeView} activeArticleSlug={activeArticleSlug} articles={articles} lang={lang} />
+      <SEOHead activeView={activeView} activeArticleSlug={activeArticleSlug} articles={visibleArticles} lang={lang} />
 
       {/* Paper Grain Pattern Overlay - Establishes brand texture */}
       <div className="paper-grain" id="bg-grain"></div>
@@ -3297,7 +3273,7 @@ export default function App() {
           {/* Premium Bento Grid of 5 Cards */}
           <div className="journal-grid-container grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-6 md:gap-8" id="journal-grid">
             
-            {articles.slice(0, 5).map((article, idx) => {
+            {visibleArticles.slice(0, 5).map((article, idx) => {
               // Create custom grid sizing for bento effect
               // Card 1: Span 5 columns on desktop
               // Card 2: Span 7 columns on desktop
@@ -3900,7 +3876,7 @@ export default function App() {
       ) : activeView === "pillar-mindfulness" ? (
         <MindfulnessPillarView 
           lang={lang} 
-          articles={articles}
+          articles={visibleArticles}
           onBackToHome={() => setActiveView("home")} 
           onPlayChime={() => audioEngineRef.current?.playChime()} 
           onNavigateToNewsletter={() => {
@@ -3921,7 +3897,7 @@ export default function App() {
       ) : activeView === "pillar-ai" ? (
         <AIPillarView 
           lang={lang} 
-          articles={articles}
+          articles={visibleArticles}
           onBackToHome={() => setActiveView("home")} 
           onPlayChime={() => audioEngineRef.current?.playChime()} 
           onNavigateToNewsletter={() => {
@@ -3942,7 +3918,7 @@ export default function App() {
       ) : activeView === "pillar-wealth" ? (
         <WealthPillarView 
           lang={lang} 
-          articles={articles}
+          articles={visibleArticles}
           onBackToHome={() => setActiveView("home")} 
           onPlayChime={() => audioEngineRef.current?.playChime()} 
           onNavigateToNewsletter={() => {
@@ -3993,7 +3969,7 @@ export default function App() {
           }}
           onPlayChime={() => audioEngineRef.current?.playChime()}
           initialArticleSlug={activeArticleSlug}
-          articles={articles}
+          articles={visibleArticles}
         />
       ) : activeView === "reading-room" ? (
         <ReadingRoomView
@@ -4054,7 +4030,7 @@ export default function App() {
       ) : activeView === "editorial-intelligence" ? (
         <EditorialIntelligenceView
           lang={lang}
-          articles={articles}
+          articles={visibleArticles}
           newsletterIssues={newsletterIssues}
           onBackToHome={() => {
             setActiveView("home");

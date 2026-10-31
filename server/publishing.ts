@@ -481,25 +481,10 @@ app.get("/api/articles", (req, res) => {
   }
 });
 
-// Sync articles back to source code and JSON file
-app.post("/api/sync-articles", requireAdmin, async (req, res) => {
-  try {
-    const { articles } = req.body;
-    if (!articles || !Array.isArray(articles)) {
-      return res.status(400).json({ error: "Invalid articles payload" });
-    }
-
-    if (!serverSupabase || articles.length > 1000 || articles.some((a: any) => !a.id || !a.title)) {
-      return res.status(400).json({ error: "Valid article records are required" });
-    }
-    const { error } = await serverSupabase.from("articles").upsert(articles);
-    if (error) return res.status(503).json({ error: "Article persistence unavailable" });
-
-    res.json({ success: true });
-  } catch (error: any) {
-    console.error("Sync Articles Error:", error);
-    res.status(500).json({ error: "Service temporarily unavailable" });
-  }
+// Legacy whole-catalog writes cannot participate safely in revision-based editing.
+// Clients now call the authenticated studio_save_article RPC, one record at a time.
+app.post("/api/sync-articles", requireAdmin, (_req,res) => {
+  res.status(410).json({success:false,error:"Whole-catalog sync is retired. Use Content Studio's revision-based save."});
 });
 
 

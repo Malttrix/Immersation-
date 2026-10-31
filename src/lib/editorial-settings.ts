@@ -24,3 +24,6 @@ export function minimumEditorialContrast(intensity: number, foreground = '#1C1C1
   const a=luminance(background), b=luminance(rgb(foreground).map(c => Math.ceil(c * .95 + 255 * .05)));
   return (Math.max(a,b)+.05)/(Math.min(a,b)+.05);
 }
+
+/** Additional parchment can only improve the established contrast floor. */
+export function overlayIntensity(value:unknown):number { const n=Number(value); return Number.isFinite(n)?Math.max(0,Math.min(.6,n)):0; }

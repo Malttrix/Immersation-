@@ -1,5 +1,5 @@
 import { defaultSchema } from 'rehype-sanitize';
-import { backgroundIntensity, imageAspect, imageFocal } from './editorial-settings';
+import { backgroundIntensity, imageAspect, imageFocal, overlayIntensity } from './editorial-settings';
 
 export type MagazineLayout = 'image' | 'background' | 'quote' | 'split';
 type Node = { type: string; value?: string; children?: Node[]; depth?: number; data?: Record<string, unknown>; position?: { start: { offset?: number }; end: { offset?: number } } };
@@ -24,7 +24,7 @@ function marker(node: Node, source: string) {
   if (!match) return null;
   try {
     const attrs = JSON.parse(match[2] || '{}');
-    if (!attrs || Array.isArray(attrs) || typeof attrs !== 'object' || Object.keys(attrs).some(k => !['src', 'alt', 'caption', 'side', 'intensity', 'focal', 'fit', 'aspect'].includes(k)) || Object.entries(attrs).some(([key, value]) => key === 'intensity' ? !['string','number'].includes(typeof value) || !Number.isFinite(Number(value)) : typeof value !== 'string' || value.length > 2000)) return null;
+    if (!attrs || Array.isArray(attrs) || typeof attrs !== 'object' || Object.keys(attrs).some(k => !['src', 'alt', 'caption', 'side', 'intensity', 'focal', 'fit', 'aspect', 'overlay', 'mobileSrc', 'mobileFallback'].includes(k)) || Object.entries(attrs).some(([key, value]) => ['intensity','overlay'].includes(key) ? !['string','number'].includes(typeof value) || !Number.isFinite(Number(value)) : typeof value !== 'string' || value.length > 2000)) return null;
     return { layout: match[1] as MagazineLayout, attrs };
   } catch { return null; }
 }
@@ -34,6 +34,7 @@ function container(layout: MagazineLayout, children: Node[], attrs: Record<strin
     dataMagazineAlt: attrs.alt || '', dataMagazineCaption: attrs.caption || '',
     dataMagazineSide: attrs.side === 'right' ? 'right' : 'left',
     dataMagazineIntensity: String(backgroundIntensity(attrs.intensity)), dataMagazineFocal: imageFocal(attrs.focal || 'right'),
+    dataMagazineOverlay: String(overlayIntensity(attrs.overlay)), dataMagazineMobileImage: editorialImageSource(attrs.mobileSrc)||'', dataMagazineMobileFallback: attrs.mobileFallback==='plain'?'plain':'image',
     dataMagazineFit: attrs.fit === 'cover' ? 'cover' : 'contain', dataMagazineAspect: imageAspect(attrs.aspect),
   } } };
 }
@@ -96,6 +97,6 @@ export const magazineSanitizeSchema = {
   attributes: { ...defaultSchema.attributes, section: [
     ['dataMagazineLayout', ...layouts], 'dataMagazineImage', 'dataMagazineAlt',
     'dataMagazineCaption', ['dataMagazineSide', 'left', 'right'],
-    'dataMagazineIntensity', 'dataMagazineFocal', ['dataMagazineFit', 'cover', 'contain'], 'dataMagazineAspect',
+    'dataMagazineIntensity', 'dataMagazineFocal', 'dataMagazineOverlay', 'dataMagazineMobileImage', ['dataMagazineMobileFallback','plain','image'], ['dataMagazineFit', 'cover', 'contain'], 'dataMagazineAspect',
   ] },
 };
