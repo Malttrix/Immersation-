@@ -82,3 +82,19 @@ test('presentation metadata accepts friendly aliases and falls back without chan
   assert.equal((html.match(/<img /g)||[]).length,1);
   assert.ok(html.indexOf('Original title') < html.indexOf('Existing cover'));
 });
+
+test('bounded background and photography controls survive sanitization without allowing arbitrary styles', () => {
+  const html=render(':::magazine background {"src":"/photo.jpg","intensity":0.25,"focal":"85% 35%"}\n\n## Original heading\n\nOriginal paragraph.\n\n:::');
+  assert.match(html,/data-magazine-intensity="0.25"/);assert.match(html,/data-magazine-focal="85% 35%"/);
+  const safe=render(':::magazine image {"src":"/photo.jpg","fit":"cover","aspect":"4/5","focal":"url(evil)"}\n\n:::');
+  assert.match(safe,/data-magazine-fit="cover"/);assert.match(safe,/data-magazine-aspect="4\/5"/);assert.match(safe,/data-magazine-focal="50% 50%"/);assert.doesNotMatch(safe,/style=|url\(evil\)/);
+});
+test('automatic photography wraps one bounded introduction, leaves text in sequence, and can be disabled', () => {
+  const source='## One\n\nFirst.\n\nSecond.\n\nThird.\n\nFourth.\n\nFifth.\n\n## Two\n\nLast.';
+  const html=render(source,{cover:'/photo.jpg'});
+  assert.equal((html.match(/data-magazine-layout="background"/g)||[]).length,1);
+  assert.ok(html.indexOf('</section>')<html.indexOf('Fifth.'));
+  for(const text of ['First.','Second.','Third.','Fourth.','Fifth.','Last.']) assert.equal(html.split(text).length-1,1);
+  assert.doesNotMatch(render(source,{cover:'/photo.jpg',automaticBackground:false}),/data-magazine-layout/);
+  assert.doesNotMatch(render(source,{cover:'javascript:bad'}),/data-magazine-layout/);
+});

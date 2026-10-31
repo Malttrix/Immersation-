@@ -1,51 +1,84 @@
-# Immersation: The Living Journal
+# The Living Journal V3
 
-Revision branch: `feature/living-journal`, based on production commit `5ad6c1d`. Review locally; do not merge or deploy without approval.
+Branch `feature/living-journal-v3`, based on production `f03fdb2`. Local review only. Do not merge or deploy without approval.
 
-## Rendering architecture and preservation
+## Architecture and boundaries
 
-`App.tsx` resolves `/articles/:slug`, normalizes bilingual records and loads Supabase as the source of truth. `ArticlesView.tsx` owns archive/detail navigation, local bookmark and analytics state, related articles and IntersectionObserver scrollspy. `ArticlePage` renders `article.content[lang]` through ReactMarkdown, remark-gfm, the magazine AST pass and rehype-sanitize. The existing first-H1 removal, generated anchor IDs, routing callbacks and `SEOHead` metadata remain unchanged.
+`App.tsx` still owns routing, SEOHead, bilingual normalization and Supabase synchronization. Normalization preserves optional metadata supplied by callers. Defaults/directives work with existing data; persisting new editorial controls later needs a separately reviewed Studio/storage integration. No storage or Studio changes are made here. `ArticlesView.tsx` retains archive navigation, bookmarks, local analytics, share URLs, newsletter subscriptions, reader reflections, related stories and embedded-media handling. Stored article copy, heading slug generation, article URLs, SEO metadata, Stripe and admin code are unchanged.
 
-The revision changes article composition only. It does not modify stored copy, slugs, Supabase schema/policies, payment code, Content Studio, global navigation or SEO metadata. Reflections, sharing, bookmarks, analytics, audio, captions and related navigation retain their existing handlers. There are no added dependencies or generated images.
+The article opening sits above `MagazineReaderGrid`. The grid contains the Markdown body and a sticky utility sidebar. Comments, tags, sharing, related reading, newsletter and ads follow the reading grid. Only `#article-reading-content` is measured for progress.
 
-## The composition system
+Reusable pieces:
 
-One `ArticlePage` and one `ArticleOpening` render all modes. An optional `article.presentation` selects the layout, either as a string or `{ mode: string }`. Human-readable, hyphenated and underscored names are accepted; absent/unknown values fall back to Premium Magazine. No presentation selector or persisted presentation field existed in the audited production code. This is an optional rendering API, not a Content Studio or database change.
+- `ArticleMagazine.tsx`: MagazineHeader, ArticleOpening, MagazineReaderGrid, MagazineSidebar, EditorialImage, EditorialBackgroundSection, EditorialPullQuote, EditorialSplitSection and the backward-compatible MagazineBlock dispatcher.
+- `ArticleReadingTools.tsx`: TableOfContents, ReadingProgressMarker, shared progress controller.
+- `reading-progress.ts`: pure geometry calculation.
+- `editorial-settings.ts`: bounded intensity, focal-position/aspect validation, and conservative contrast calculation.
+- `magazine-markdown.ts`: existing directive parser and a single automatic section treatment; raw HTML remains inert.
 
-| Mode | Opening | Image and reading scale |
-| --- | --- | --- |
-| `classic-editorial` | Linear title, deck, then metadata | 800px outer essay, 700px body, restrained headline |
-| `premium-magazine` | Desktop title/metadata aligned beside a supporting deck; stacked below 1024px | 1160px photographic spread, 700px body (680px Chinese) |
-| `visual-feature` | Image opens the story, followed by an inset title composition | 1160px photography; inset disappears on mobile |
+At desktop widths (1100px and above), the reading grid uses approximately 75/25 proportions before the gutter. Its body measure remains 680px (660px Chinese), while imagery and pull quotes can use the full main column. The sidebar sticks 104px below the viewport top. Its contents and overall height are bounded; it contains percentage, expanded TOC and one article-specific Pinterest widget, without newsletter/advertising clutter.
 
-Examples: `presentation: 'Classic Editorial'`, `presentation: 'premium-magazine'`, or `presentation: { mode: 'visual-feature' }`. Existing article objects without this optional value continue working.
+Below 1100px the page becomes one column. A full-width collapsible contents list and accessible Pinterest share action follow the cover. A compact, fixed 52px bottom progress display remains visible. Footer padding prevents it covering the final links. Existing sharing at the article end is retained; there is one Pinterest image widget, not duplicate desktop/mobile widgets.
 
-The brand remains Parchment White #F4F1EB, Deep Cypress #1A2F24, Obsidian Ink #1C1C1C, Quiet Rust #8B5A44 and Muted Gold #B69A6B, using existing Lora/Noto Serif SC fonts. Desktop body text is 19px/1.85; mobile 17px/1.85; Chinese body leading is 2. Headlines use natural wrapping without inserted line breaks or rewritten text. Chinese titles use less compression and strict line breaking.
+## Progress behavior
 
-The single hero is unfiltered and follows the source image's natural proportions. This removes the old fixed-frame letterboxing of panoramic covers. Noncritical media remains lazy-loaded; priority covers remain eager. Existing fallback geometry and safe-image URL checks remain. Accurate per-image dimensions are not stored in the existing article model; unusual aspect ratios can still adjust during first image decoding. No measured CLS claim is made.
+Let `top` and `height` describe the Markdown body's document geometry. Long-article progress is:
 
-The TOC is closed initially at every width and opens in place. A thin progress rail replaces the permanent margin marker and uses Motion values without per-scroll React state updates. Promotional columns are removed: related articles, newsletter, optional ad and Pinterest all follow the article/reflections. The Pinterest image mounts only after its disclosure opens. Reflections use an unboxed form with clearer placeholders and explicit accessible labels. Reduced-motion/transparency and print rules remain scoped to the reader.
+```text
+start = top - 104
+end = top + height - viewportHeight + bottomInset
+progress = clamp((scrollY - start) / (end - start), 0, 1)
+```
 
-## Reusable Markdown layouts
+`bottomInset` is 52px on tablet/mobile and zero on desktop. Progress is zero before entering the reading area and completes when the final reading line reaches the unobscured viewport. Short articles complete once their entire text is visible. Empty/invalid geometry remains zero. Comments, long afterwords and promotions never extend the range.
 
-`ArticleMagazine.tsx` exports `EditorialImage`, `MagazineBlock`, `ArticleOpening`, and `resolveArticlePresentation`. Existing `:::magazine` directives retain their syntax, Markdown contents, nesting and sanitization:
+A single controller subscribes to Motion's scroll value. ResizeObserver handles body reflow and cover/font changes above it; window resizing remeasures the visible reading area. Two responsive displays share the same MotionValue. Motion draws the line; refs update the visible integer and ARIA value only when the integer changes. Continuous scrolling does not set React progress state. Reduced-motion preference bypasses the line spring. The percentage is not an aria-live announcement on every change.
+
+TOC IDs and links are retained. Scrollspy recomputes the last heading above the reading threshold after jumps as well as ordinary scrolling, updating React only when the section changes. Anchor scrolling respects reduced motion and lands 104px below the viewport top.
+
+## Image treatment and background settings
+
+Complete is the default for covers and inline images, preserving all embedded lettering, diagrams and infographics. The demonstration cover contains lettering, so it intentionally remains complete. An explicitly photographic image can crop to a selected aspect and focal point with object-fit: cover. Captions, safe URL validation, lazy noncritical loading, priority covers and accessible failure geometry remain in place.
+
+Optional article metadata, ready for future Studio integration (no Studio UI/storage changes in this stage):
+
+```ts
+editorial: {
+  backgroundIntensity: 0.24,       // bounded to 0.12–0.28
+  backgroundFocal: 'right',        // left / center / right / top / bottom / '80% 35%'
+  backgroundImage: '/images/story-photo.jpg', // optional; otherwise existing cover
+  automaticBackground: true,      // false disables the automatic section
+  coverTreatment: 'complete',     // 'photograph' explicitly enables a 16:9 crop
+  coverFocal: 'center'
+}
+```
+
+Without directives, a valid article-specific cover/editorial image supports one automatic section introduction. The parser prefers the third suitable H2, then the second, then another eligible section, excluding references/sources. It wraps at most four immediately following paragraphs, with at least two required. Remaining paragraphs stay ordinary reading text. Text is neither duplicated nor rewritten. Explicit directives suppress automatic styling. The existing manual-chores quote is retained once in its original sequence.
+
+Backgrounds use the existing cover with a bounded 24% default alpha, a parchment edge overlay and focal cropping. The demonstration crop emphasizes the washing scene rather than repeating the cover lettering. There is no blur, CSS enlargement or photograph behind the headline. Missing backgrounds return to plain parchment. Reduced-transparency and print modes hide decorative imagery.
+
+Contrast was inspected in the browser and tested technically. At maximum 28% photo alpha, a conservative black-photo-pixel model with a further 5% black background / white foreground allowance for the existing paper texture gives at least 5.92:1 for body #1C1C1C and 4.88:1 for cypress headings/links. The parchment overlay brightens this bound. Section link/emphasis colors are opaque dark colors; preformatted code retains its original contrasting surface. This validates the specified foreground/background pairs, not a claim of complete WCAG compliance or a measured Core Web Vitals score.
+
+## Backward-compatible Markdown directives
+
+Existing image/background/quote/split directives and original attributes remain valid. Place markers on separate lines, with blank lines around them. Optional new controls are `intensity`, `focal`, `fit`, `aspect`:
 
 ```markdown
-:::magazine image {"src":"/images/photo.jpg","alt":"Describe the existing photo","caption":"Existing caption"}
+:::magazine background {"src":"/images/story-photo.jpg","intensity":0.24,"focal":"right"}
+
+## Original heading
+
+Original Markdown text.
 
 :::
 
-:::magazine split {"src":"/images/photo.jpg","alt":"Describe the existing photo","side":"right"}
-
-## Existing heading
-
-Original Markdown body.
+:::magazine image {"src":"/images/photo.jpg","alt":"Describe the existing photograph","caption":"Existing caption","fit":"cover","aspect":"21/9","focal":"80% 35%"}
 
 :::
 
-:::magazine background {"src":"/images/another-photo.jpg"}
+:::magazine split {"src":"/images/diagram.png","alt":"Original diagram","side":"right"}
 
-Original section text.
+Original Markdown text. Complete image presentation is the default.
 
 :::
 
@@ -56,19 +89,19 @@ An exact quotation already in the article.
 :::
 ```
 
-Use blank lines around markers. Attributes are limited to `src`, `alt`, `caption`, `side`; layout is `image`, `split`, `background`, or `quote`. Image sources accept HTTP(S) or root-relative public paths; script/data/blob/protocol-relative/authenticated URLs are rejected. No raw HTML parser, custom styles or event handlers are admitted. Invalid, unknown or unclosed directives stay ordinary Markdown; fenced/indented code is never interpreted. Informative images need meaningful alt text; background images remain decorative, with all indexable copy rendered as real text.
+`fit` is contain (default) or cover. Allowed ratios: 16/9, 21/9, 3/2, 4/3, 4/5, 1/1. Focal positions are named positions or two bounded integer percentages. Unsafe values fall back to safe defaults; arbitrary styles/events/classes are not admitted. Intensity may be numeric or a numeric string. Image URLs remain HTTP(S) or root-relative public paths; script/data/blob/protocol-relative/authenticated URLs are rejected. Unknown attributes, malformed JSON and unclosed directives remain ordinary Markdown. Code fences are never interpreted. The existing rehype-sanitize pipeline remains; no rehypeRaw is added.
 
-Background photography is now opt-in only, at 7% opacity on parchment. The automatic repeated-cover background section has been removed. The manual-chores article retains only the existing exact bilingual sentence styled as a pull quote; it appears once and in its original position. Explicit directives still override that automatic quotation treatment.
+## Presentation modes and local review
 
-## Local review
+`article.presentation` remains a friendly string or `{ mode: string }`, supporting Classic Editorial, Premium Magazine and Visual Feature aliases. Classic keeps a compact linear opening; Premium uses the asymmetric masthead and full cover; Visual Feature opens with photography. All three share the reading grid and restored utilities.
 
 ```sh
 npm ci
 npm run dev
 ```
 
-Open `http://localhost:3000/articles/mindfulness-through-manual-chores` and `http://localhost:3000/articles/why-real-growth-feels-like-going-backward`. Use the site language controls. Public Supabase URL and anon/publishable key must be configured in ignored `.env.local` to read these database-only articles. Never place a service-role key in a Vite variable. This workspace already has public preview configuration.
+Open `http://localhost:3000/articles/mindfulness-through-manual-chores`. The development server in this workspace is already running on port 3000. Public Supabase URL and anon/publishable key in ignored `.env.local` are required for the actual database-only article; never place a service-role key in Vite.
 
-Open `http://localhost:3000/docs/journal-preview.html` for a local mode selector and bilingual toggle using the same ArticlePage. It reads the existing manual-chores record, falls back to a bundled essay if unavailable, and prevents form submissions in capture phase. It does not persist presentation choices. Vite's production entry is index.html; this dev-only review HTML is not built as a production route.
+`http://localhost:3000/docs/journal-preview.html` provides local mode/language controls and a 12–28% intensity slider using the same ArticlePage. It reads the existing article, falls back to an existing bundled essay when unavailable, and prevents all form submissions in capture phase. Choices remain in memory. It is not a Content Studio change and is excluded from the production build's entry points.
 
-Validation: `npm run lint`, `npm test`, `npm run build`. Visual review targets 1440×1000, 768×1024 and 390×844. Do not submit production reflection/newsletter forms during review.
+Checks: `npm run lint`, `npm test`, `npm run build`. Progress, responsive semantics, directive safety, automatic-section fallback and contrast calculations have dedicated tests. Before/after screenshots are captured at 1440×1000, 768×1024 and 390×844, plus full-page desktop. No production reflection/subscription/payment is submitted during review.
