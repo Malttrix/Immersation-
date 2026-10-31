@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { editorialImageSource, type MagazineLayout } from '../lib/magazine-markdown';
-import { backgroundIntensity, imageAspect, imageFocal } from '../lib/editorial-settings';
+import { backgroundIntensity, imageAspect, imageFocal, overlayIntensity } from '../lib/editorial-settings';
 
 /** Complete images retain diagrams/text; only explicitly photographic assets receive a crop. */
 export function EditorialImage({ src, alt = '', caption, priority = false, decorative = false, className = '', inline = false,
-  treatment = 'complete', aspect, focal }: {
+  treatment = 'complete', aspect, focal, mobileSrc }: {
   src?: string; alt?: string; caption?: string; priority?: boolean; decorative?: boolean; className?: string; inline?: boolean;
-  treatment?: 'complete' | 'photograph'; aspect?: string; focal?: string;
+  treatment?: 'complete' | 'photograph'; aspect?: string; focal?: string; mobileSrc?: string;
 }) {
   const [failedSource, setFailedSource] = useState<string>();
   const safeSource = editorialImageSource(src);
@@ -15,7 +15,7 @@ export function EditorialImage({ src, alt = '', caption, priority = false, decor
     width={1672} height={941} loading={priority ? 'eager' : 'lazy'} decoding="async"
     fetchPriority={priority ? 'high' : undefined} referrerPolicy="no-referrer"
     style={{ objectPosition: imageFocal(focal) }} onError={() => setFailedSource(safeSource)} />;
-  if (decorative) return failed ? null : <div className={`magazine-backdrop ${className}`} aria-hidden="true">{image}</div>;
+  if (decorative) return failed ? null : <div className={`magazine-backdrop ${className}`} aria-hidden="true">{editorialImageSource(mobileSrc)?<picture><source media="(max-width: 600px)" srcSet={editorialImageSource(mobileSrc)}/>{image}</picture>:image}</div>;
   const Frame = inline ? 'span' : 'figure';
   const Surface = inline ? 'span' : 'div';
   const Caption = inline ? 'span' : 'figcaption';
@@ -26,13 +26,13 @@ export function EditorialImage({ src, alt = '', caption, priority = false, decor
   </Frame>;
 }
 
-export function EditorialBackgroundSection({ src, intensity, focal = 'right', children }: {
-  src?: string; intensity?: unknown; focal?: string; children?: React.ReactNode;
+export function EditorialBackgroundSection({ src, intensity, focal = 'right', children, overlay, mobileSrc, mobileFallback }: {
+  src?: string; intensity?: unknown; focal?: string; children?: React.ReactNode; overlay?: unknown; mobileSrc?: string; mobileFallback?: string;
 }) {
   const alpha = backgroundIntensity(intensity);
-  return <section className="magazine-photo-section" data-background-intensity={alpha}
-    style={{ '--editorial-photo-alpha': alpha } as React.CSSProperties}>
-    <EditorialImage src={src} decorative focal={focal} /><div className="magazine-photo-copy">{children}</div>
+  return <section className="magazine-photo-section" data-background-intensity={alpha} data-mobile-background={mobileFallback}
+    style={{ '--editorial-photo-alpha': alpha, '--editorial-overlay-alpha': overlayIntensity(overlay) } as React.CSSProperties}>
+    <EditorialImage src={src} decorative focal={focal} mobileSrc={mobileSrc} /><div className="magazine-photo-copy">{children}</div>
   </section>;
 }
 export function EditorialPullQuote({ children }: { children?: React.ReactNode }) {
@@ -46,7 +46,7 @@ export function EditorialSplitSection({ src, alt, caption, side, fit, focal, asp
 }
 type MagazineBlockProps = {
   layout?: MagazineLayout; src?: string; alt?: string; caption?: string; side?: string; children?: React.ReactNode;
-  intensity?: unknown; focal?: string; fit?: string; aspect?: string;
+  intensity?: unknown; focal?: string; fit?: string; aspect?: string; overlay?: unknown; mobileSrc?: string; mobileFallback?: string;
 };
 export function MagazineBlock(props: MagazineBlockProps) {
   const { layout, src, alt, caption, fit, focal, aspect, children } = props;

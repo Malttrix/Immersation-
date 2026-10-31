@@ -527,3 +527,7 @@ button.journal-toc-label { min-height: 44px; cursor: pointer; }
 .magazine-photo-copy :is(strong, th), .magazine-photo-copy :not(pre) > code { color: #1A2F24; }
 
 .magazine-photo-copy :not(pre) > code, .magazine-photo-copy thead { background: #F4F1EB; }
+
+/* Stage 3 author-controlled backgrounds retain the Stage 2 contrast floor. */
+.magazine-backdrop::before {content:"";position:absolute;inset:0;z-index:1;background:rgb(244 241 235 / var(--editorial-overlay-alpha, 0));pointer-events:none;}
+@media(max-width:600px){.magazine-photo-section[data-mobile-background="plain"] .magazine-backdrop{display:none;}}

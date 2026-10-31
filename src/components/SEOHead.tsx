@@ -1,3 +1,4 @@
+import { articleSEO, hydrateArticle } from "../lib/article-studio";
 import { useEffect } from "react";
 import { Article } from "../articlesData";
 
@@ -14,16 +15,18 @@ export default function SEOHead({ activeView, activeArticleSlug, articles = [], 
     let title = "Immersation | 智枢阁";
     let description = "Immersation is a personal intelligence media brand for body, tool, and capital. Calm, structured knowledge systems for future-ready individuals.";
     let canonicalPath = "/";
+    let canonicalOverride = "";
     let ogType = "website";
     let ogImage = "https://cms.immersation.com/wp-content/uploads/2026/07/IMMERSATION-FIVICON.png";
     let jsonLdData: any = null;
 
     // Find active article if on article page
     if (activeView === "articles" && activeArticleSlug) {
-      const art = articles.find((a) => (a.slug || a.id) === activeArticleSlug);
-      if (art) {
-        const artTitle = art.seo?.titleEN || (art.title ? (art.title[lang] || art.title.en) : "Article");
-        const artDesc = art.seo?.descEN || (art.excerpt ? (art.excerpt[lang] || art.excerpt.en) : description);
+      const raw = articles.find((a) => (a.slug || a.id) === activeArticleSlug);
+      if (raw) {
+        const art = hydrateArticle(raw);
+        canonicalOverride = /^https?:\/\//.test(art.canonicalLink||'') ? art.canonicalLink : "";
+        const {title:artTitle,description:artDesc}=articleSEO(art,lang);
         
         title = `${artTitle} | Immersation`;
         description = artDesc;
@@ -36,7 +39,7 @@ export default function SEOHead({ activeView, activeArticleSlug, articles = [], 
           "@type": "Article",
           "headline": artTitle,
           "description": artDesc,
-          "url": `${domain}${canonicalPath}`,
+          "url": (canonicalOverride || `${domain}${canonicalPath}`),
           "image": [ogImage],
           "datePublished": art.created_at || "2026-07-28",
           "author": {
@@ -53,7 +56,7 @@ export default function SEOHead({ activeView, activeArticleSlug, articles = [], 
           },
           "mainEntityOfPage": {
             "@type": "WebPage",
-            "@id": `${domain}${canonicalPath}`
+            "@id": (canonicalOverride || `${domain}${canonicalPath}`)
           }
         };
       }
@@ -125,7 +128,7 @@ export default function SEOHead({ activeView, activeArticleSlug, articles = [], 
         "@context": "https://schema.org",
         "@type": schemaType,
         "name": title,
-        "url": `${domain}${canonicalPath}`,
+        "url": (canonicalOverride || `${domain}${canonicalPath}`),
         "description": description,
         "publisher": {
           "@type": "Organization",
@@ -138,7 +141,7 @@ export default function SEOHead({ activeView, activeArticleSlug, articles = [], 
       };
     }
 
-    const fullCanonicalUrl = `${domain}${canonicalPath}`;
+    const fullCanonicalUrl = (canonicalOverride || `${domain}${canonicalPath}`);
 
     // 1. Update Document Title
     document.title = title;

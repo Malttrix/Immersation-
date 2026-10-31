@@ -1,3 +1,6 @@
+import { CONTENT_FORMAT_OPTIONS } from "../lib/article-taxonomy";
+import { ContentStudio } from "./content-studio/ContentStudio";
+import { supabaseArticleRepository, type ArticleRepository } from "../lib/article-studio";
 import { secureFetch } from "../lib/security-api";
 import React, { useState, useEffect } from "react";
 import jsPDF from "jspdf";
@@ -53,158 +56,8 @@ import {
 } from "recharts";
 
 
-// Brand-aligned pillar + category system (Immersation official 3-pillar model)
-const PILLAR_OPTIONS = [
-  { value: "body", label: { en: "Body (Mindfulness Health & Longevity)", zh: "身（正念健康与长寿管理）" } },
-  { value: "tool", label: { en: "Tool (AI Automation)", zh: "器（AI 自动化）" } },
-  { value: "capital", label: { en: "Capital (Wealth Cognition)", zh: "财（财富认知）" } },
-];
-
-const SYSTEM_INTEGRATION_OPTION = {
-  value: "system-integration",
-  label: { en: "System Integration (cross-pillar framework essay)", zh: "系统整合（跨支柱框架文章）" },
-};
-
-const CATEGORY_OPTIONS_BY_PILLAR: Record<string, { value: string; label: { en: string; zh: string } }[]> = {
-  body: [
-    { value: "sleep-reset-guides", label: { en: "Sleep Reset Guides", zh: "睡眠修复指南" } },
-    { value: "stress-recovery-frameworks", label: { en: "Stress Recovery Frameworks", zh: "压力恢复框架" } },
-    { value: "mindful-productivity", label: { en: "Mindful Productivity", zh: "正念效率" } },
-    { value: "longevity-habits", label: { en: "Longevity Habits", zh: "长寿习惯" } },
-    { value: "focus-training", label: { en: "Focus Training", zh: "专注力训练" } },
-    { value: "nervous-system-regulation", label: { en: "Nervous System Regulation", zh: "神经系统调节" } },
-    { value: "energy-management-systems", label: { en: "Energy Management Systems", zh: "精力管理系统" } },
-  ],
-  tool: [
-    { value: "ai-workflow-blueprints", label: { en: "AI Workflow Blueprints", zh: "AI 工作流蓝图" } },
-    { value: "prompt-libraries", label: { en: "Prompt Libraries", zh: "提示词库" } },
-    { value: "automation-templates", label: { en: "Automation Templates", zh: "自动化模板" } },
-    { value: "creator-workflow-systems", label: { en: "Creator Workflow Systems", zh: "创作者工作流系统" } },
-    { value: "notion-ai-systems", label: { en: "Notion + AI Systems", zh: "Notion 与 AI 系统" } },
-    { value: "solo-business-automation", label: { en: "Solo Business Automation", zh: "个人商业自动化" } },
-    { value: "productivity-dashboards", label: { en: "Productivity Dashboards", zh: "效率仪表盘" } },
-  ],
-  capital: [
-    { value: "long-term-investing-frameworks", label: { en: "Long-Term Investing Frameworks", zh: "长期投资框架" } },
-    { value: "asset-allocation-checklists", label: { en: "Asset Allocation Checklists", zh: "资产配置清单" } },
-    { value: "market-cycle-notes", label: { en: "Market Cycle Notes", zh: "市场周期笔记" } },
-    { value: "risk-reflection-tools", label: { en: "Risk Reflection Tools", zh: "风险反思工具" } },
-    { value: "wealth-planning-templates", label: { en: "Wealth Planning Templates", zh: "财富规划模板" } },
-    { value: "financial-decision-frameworks", label: { en: "Financial Decision Frameworks", zh: "财务决策框架" } },
-    { value: "capital-thinking-essays", label: { en: "Capital Thinking Essays", zh: "资本思维文章" } },
-  ],
-  "system-integration": [
-    { value: "personal-intelligence-system", label: { en: "Personal Intelligence System", zh: "个人智能系统" } },
-    { value: "three-pillar-model", label: { en: "The Three-Pillar Model", zh: "三支柱模型" } },
-    { value: "reader-journey-notes", label: { en: "Reader Journey Notes", zh: "读者旅程笔记" } },
-  ],
-};
-
-const CONTENT_FORMAT_OPTIONS = [
-  { value: "editorial-intelligence", label: { en: "Editorial Intelligence (Essay / Newsletter / Research Brief)", zh: "编辑型智能内容" } },
-  { value: "digital-guide", label: { en: "Digital Guide (Structured Handbook)", zh: "数字指南" } },
-  { value: "framework", label: { en: "Framework (Standalone Model/Tool)", zh: "框架工具" } },
-];
-
-function RelatedArticlesMultiSelect({
-  lang,
-  articles,
-  currentSlug,
-  selectedSlugs,
-  onChange,
-}: {
-  lang: "en" | "zh";
-  articles: any[];
-  currentSlug: string;
-  selectedSlugs: string[];
-  onChange: (slugs: string[]) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
-
-  const candidates = articles.filter(
-    (a) =>
-      (a.slug || a.id) !== currentSlug &&
-      !selectedSlugs.includes(a.slug || a.id) &&
-      (a.title?.en?.toLowerCase().includes(query.toLowerCase()) ||
-        a.title?.zh?.includes(query))
-  );
-
-  const addSlug = (slug: string) => {
-    onChange([...selectedSlugs, slug]);
-    setQuery("");
-    setOpen(false);
-  };
-
-  const removeSlug = (slug: string) => {
-    onChange(selectedSlugs.filter((s) => s !== slug));
-  };
-
-  return (
-    <div className="relative">
-      <label className="block font-semibold text-[#1A2F24] mb-1">
-        {lang === "en" ? "Related Articles" : "相关文章"}
-      </label>
-
-      <div className="flex flex-wrap gap-2 mb-2">
-        {selectedSlugs.map((slug) => {
-          const art = articles.find((a) => (a.slug || a.id) === slug);
-          return (
-            <span
-              key={slug}
-              className="inline-flex items-center gap-1 bg-[#E8DDCF] text-[#1C1C1C] text-xs px-2 py-1 rounded"
-            >
-              {art?.title?.[lang] || slug}
-              <button
-                type="button"
-                onClick={() => removeSlug(slug)}
-                className="text-[#8B5A44] hover:text-[#1A2F24]"
-                aria-label={lang === "en" ? "Remove related article" : "移除相关文章"}
-              >
-                ×
-              </button>
-            </span>
-          );
-        })}
-      </div>
-
-      <input
-        type="text"
-        value={query}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          setOpen(true);
-        }}
-        onFocus={() => setOpen(true)}
-        placeholder={lang === "en" ? "Search published articles..." : "搜索已发布文章..."}
-        className="w-full border border-[#D8D2C6] rounded-xs p-2 text-stone-800 focus:ring-[#8B5A44] focus:border-[#8B5A44]"
-      />
-
-      {open && query && candidates.length > 0 && (
-        <ul className="absolute z-10 w-full bg-white border border-[#D8D2C6] rounded-xs mt-1 max-h-48 overflow-y-auto shadow-md">
-          {candidates.slice(0, 8).map((a) => (
-            <li
-              key={a.slug || a.id}
-              onClick={() => addSlug(a.slug || a.id)}
-              className="px-3 py-2 text-sm hover:bg-[#F4F1EB] cursor-pointer"
-            >
-              <div className="font-medium">{a.title?.[lang]}</div>
-              <div className="text-[11px] text-stone-400">{a.slug || a.id}</div>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <p className="text-[11px] text-stone-400 mt-1">
-        {lang === "en"
-          ? "Search and select existing articles to cross-link. No manual slug typing — prevents broken links."
-          : "搜索并选择已有文章进行关联，无需手动输入 slug，避免链接失效。"}
-      </p>
-    </div>
-  );
-}
-
 interface AdminDashboardProps {
+  articleRepository?: ArticleRepository;
   lang: "en" | "zh";
   userEmail: string | null;
   systemMembers: Array<{ email: string; role: string; joined: string; status: string; regMethod?: string }>;
@@ -221,6 +74,7 @@ interface AdminDashboardProps {
 }
 
 export default function AdminDashboard({
+  articleRepository: suppliedArticleRepository,
   lang,
   userEmail,
   systemMembers,
@@ -262,6 +116,12 @@ export default function AdminDashboard({
 
   // Admin active main section state
   const [activeTab, setActiveTab] = useState<"overview" | "ecommerce" | "content" | "audio" | "subscribers" | "members" | "analytics" | "settings">("overview");
+
+  const articleRepository = React.useMemo(()=>suppliedArticleRepository||supabaseArticleRepository(supabase),[suppliedArticleRepository]);
+  const [articleDirty,setArticleDirty]=useState(false);
+  const [articleSaving,setArticleSaving]=useState(false);
+  const leaveArticle=()=>!articleSaving&&(!articleDirty||window.confirm('Leave Content Studio? Unsaved changes remain only in browser recovery.'));
+  const navigateAdmin=(tab:typeof activeTab)=>{if(leaveArticle())setActiveTab(tab);};
 
   // Local state persisted in localStorage for mock features
   const [coupons, setCoupons] = useState<any[]>(() => {
@@ -699,9 +559,7 @@ export default function AdminDashboard({
 
   // E-commerce Edit states
   const [editingProduct, setEditingProduct] = useState<any | null>(null);
-  const [editingArticle, setEditingArticle] = useState<any | null>(null);
   const [showProductForm, setShowProductForm] = useState(false);
-  const [showArticleForm, setShowArticleForm] = useState(false);
   
   // Custom confirmation modal state (bypasses iframe block on window.confirm)
   const [deleteConfirm, setDeleteConfirm] = useState<{
@@ -718,6 +576,8 @@ export default function AdminDashboard({
   // Content Studio sub-tabs and states
   const [contentSubTab, setContentSubTab] = useState<"articles" | "newsletters" | "ebooks" | "comments">("articles");
   
+  const changeContentTab=(tab:typeof contentSubTab)=>{if(leaveArticle())setContentSubTab(tab);};
+
   // Media Center simulation state
   
   // Moderation state
@@ -897,41 +757,6 @@ export default function AdminDashboard({
   const [uploadedFileName, setUploadedFileName] = useState("");
   const [uploadedFileType, setUploadedFileType] = useState<"image" | "audio" | "pdf" | "">("");
 
-  // Article form controlled states
-  const [artSlug, setArtSlug] = useState("");
-  const [artTitleEN, setArtTitleEN] = useState("");
-  const [artTitleZH, setArtTitleZH] = useState("");
-  const [artExcerptEN, setArtExcerptEN] = useState("");
-  const [artExcerptZH, setArtExcerptZH] = useState("");
-  const [artBodyEN, setArtBodyEN] = useState("");
-  const [artBodyZH, setArtBodyZH] = useState("");
-  const [artCatEN, setArtCatEN] = useState("BODY NOTES");
-  const [artCatZH, setArtCatZH] = useState("身心信标");
-  const [artPillar, setArtPillar] = useState<string>("body");
-
-  const [artCategoryValue, setArtCategoryValue] = useState("");
-  const [artArticleFormat, setArtArticleFormat] = useState("editorial-intelligence");
-  const [artContentFormat, setArtContentFormat] = useState("markdown");
-  const [artRelatedSlugs, setArtRelatedSlugs] = useState<string[]>([]);
-
-  const [artTags, setArtTags] = useState("");
-  const [artCover, setArtCover] = useState("");
-  const [artPinterestImageUrl, setArtPinterestImageUrl] = useState("");
-  const [artAdUrl, setArtAdUrl] = useState("");
-  const [artDate, setArtDate] = useState(() => new Date().toISOString().split("T")[0]);
-  const [artReadEN, setArtReadEN] = useState("");
-  const [artReadZH, setArtReadZH] = useState("");
-  const [artStatus, setArtStatus] = useState("Draft");
-  const [artScheduledDate, setArtScheduledDate] = useState("");
-  const [artFeatured, setArtFeatured] = useState(false);
-  const [artSeoTitleEN, setArtSeoTitleEN] = useState("");
-  const [artSeoTitleZH, setArtSeoTitleZH] = useState("");
-  const [artSeoDescEN, setArtSeoDescEN] = useState("");
-  const [artSeoDescZH, setArtSeoDescZH] = useState("");
-  const [artAuthor, setArtAuthor] = useState("Immersation Editor");
-  const [artRelated, setArtRelated] = useState("");
-  const [artCanonical, setArtCanonical] = useState("");
-
   // Newsletter form controlled states
   const [showNewsletterForm, setShowNewsletterForm] = useState(false);
   const [editingNewsletter, setEditingNewsletter] = useState<any | null>(null);
@@ -1085,16 +910,6 @@ export default function AdminDashboard({
   };
 
   // Controlled states handlers & helpers
-  const handleArtTitleENChange = (val: string) => {
-    setArtTitleEN(val);
-    if (!editingArticle) {
-      setArtSlug(val.toLowerCase()
-        .replace(/[^a-z0-9\s]/g, "")
-        .replace(/\s+/g, "-")
-        .substring(0, 50));
-    }
-  };
-
   const handleNlTitleENChange = (val: string) => {
     setNlTitleEN(val);
     if (!editingNewsletter) {
@@ -1105,7 +920,7 @@ export default function AdminDashboard({
     }
   };
 
-  const handleCalculateReadTime = (enText: string, zhText: string, type: "art" | "nl") => {
+  const handleCalculateReadTime = (enText: string, zhText: string, type: "nl") => {
     const enWords = enText.trim().split(/\s+/).filter(Boolean).length;
     const enMinutes = Math.max(1, Math.ceil(enWords / 150));
     const zhChars = zhText.replace(/\s+/g, "").length;
@@ -1113,13 +928,8 @@ export default function AdminDashboard({
 
     const finalMinutes = Math.max(enMinutes, zhMinutes);
 
-    if (type === "art") {
-      setArtReadEN(`${finalMinutes} MIN READ`);
-      setArtReadZH(`阅读时间 ${finalMinutes} 分钟`);
-    } else {
-      setNlReadEN(`${finalMinutes} MIN READ`);
-      setNlReadZH(`阅读时间 ${finalMinutes} 分钟`);
-    }
+    setNlReadEN(`${finalMinutes} MIN READ`);
+    setNlReadZH(`阅读时间 ${finalMinutes} 分钟`);
   };
 
   function derivePillarFromSendFoxTags(tags: string[]): "body" | "tool" | "capital" | "frameworks" {
@@ -1161,57 +971,17 @@ export default function AdminDashboard({
     }, 1200);
   };
 
-  const handleInsertMediaTag = (textareaType: "art_en" | "art_zh" | "nl_en" | "nl_zh") => {
+  const handleInsertMediaTag = (textareaType: "nl_en" | "nl_zh") => {
     if (!uploadedFileUrl) return;
     const tag = uploadedFileType === "audio" 
       ? `{{audio:${uploadedFileUrl}}}` 
       : `![${uploadedFileName.split(".")[0]}](${uploadedFileUrl})`;
 
-    if (textareaType === "art_en") {
-      setArtBodyEN(prev => prev + (prev ? "\n\n" : "") + tag);
-    } else if (textareaType === "art_zh") {
-      setArtBodyZH(prev => prev + (prev ? "\n\n" : "") + tag);
-    } else if (textareaType === "nl_en") {
+    if (textareaType === "nl_en") {
       setNlBodyEN(prev => prev + (prev ? "\n\n" : "") + tag);
     } else if (textareaType === "nl_zh") {
       setNlBodyZH(prev => prev + (prev ? "\n\n" : "") + tag);
     }
-  };
-
-  const handleNewArticleClick = () => {
-    setEditingArticle(null);
-    setArtSlug("");
-    setArtTitleEN("");
-    setArtTitleZH("");
-    setArtExcerptEN("");
-    setArtExcerptZH("");
-    setArtBodyEN("");
-    setArtBodyZH("");
-    setArtCatEN("BODY NOTES");
-    setArtCatZH("身心信标");
-    setArtPillar("body");
-    setArtCategoryValue("");
-    setArtArticleFormat("editorial-intelligence");
-    setArtContentFormat("markdown");
-    setArtRelatedSlugs([]);
-    setArtTags("");
-    setArtCover("");
-    setArtPinterestImageUrl("");
-    setArtAdUrl("");
-    setArtDate(new Date().toISOString().split("T")[0]);
-    setArtReadEN("");
-    setArtReadZH("");
-    setArtStatus("Draft");
-    setArtScheduledDate("");
-    setArtFeatured(false);
-    setArtSeoTitleEN("");
-    setArtSeoTitleZH("");
-    setArtSeoDescEN("");
-    setArtSeoDescZH("");
-    setArtAuthor("Immersation Editor");
-    setArtRelated("");
-    setArtCanonical("");
-    setShowArticleForm(true);
   };
 
   const handleNewNewsletterClick = () => {
@@ -1263,52 +1033,6 @@ export default function AdminDashboard({
     setEbLastConvertedAt(null);
     setEbEpubConversionStatus(null);
     setShowEbookForm(true);
-  };
-
-  const handleEditArticle = (art: any) => {
-    setEditingArticle(art);
-    setArtSlug(art.slug || art.id || "");
-    setArtTitleEN(art.title?.en || "");
-    setArtTitleZH(art.title?.zh || "");
-    setArtExcerptEN(art.excerpt?.en || "");
-    setArtExcerptZH(art.excerpt?.zh || "");
-    setArtBodyEN(art.content?.en || art.description?.en || "");
-    setArtBodyZH(art.content?.zh || art.description?.zh || "");
-    setArtCatEN(art.category?.en || "");
-    setArtCatZH(art.category?.zh || "");
-    setArtPillar(art.pillar || "body");
-    setArtCategoryValue(art.categoryValue || "");
-    setArtArticleFormat(art.articleFormat || art.contentFormat || "editorial-intelligence");
-    setArtContentFormat(art.contentFormat || "markdown");
-    setArtRelatedSlugs(Array.isArray(art.relatedArticles) ? art.relatedArticles : []);
-    setArtTags(Array.isArray(art.tags) ? art.tags.join(", ") : "");
-    setArtCover(art.cover || "");
-    setArtPinterestImageUrl(art.pinterestImageUrl || "");
-    setArtAdUrl(art.adUrl || "");
-    if (typeof art.date === "object" && art.date.en) {
-      try {
-        const d = new Date(art.date.en);
-        if (!isNaN(d.getTime())) setArtDate(d.toISOString().split("T")[0]);
-      } catch (e) {}
-    } else if (typeof art.date === "string") {
-      try {
-        const d = new Date(art.date);
-        if (!isNaN(d.getTime())) setArtDate(d.toISOString().split("T")[0]);
-      } catch (e) {}
-    }
-    setArtReadEN(art.readTime?.en || "");
-    setArtReadZH(art.readTime?.zh || "");
-    setArtStatus(art.status || "Published");
-    setArtScheduledDate(art.scheduledDate || "");
-    setArtFeatured(!!art.featured);
-    setArtSeoTitleEN(art.seo?.titleEN || "");
-    setArtSeoTitleZH(art.seo?.titleZH || "");
-    setArtSeoDescEN(art.seo?.descEN || "");
-    setArtSeoDescZH(art.seo?.descZH || "");
-    setArtAuthor(art.author || "Immersation Editor");
-    setArtRelated(Array.isArray(art.relatedArticles) ? art.relatedArticles.join(", ") : "");
-    setArtCanonical(art.canonicalLink || "");
-    setShowArticleForm(true);
   };
 
   const handleEditNewsletter = (nl: any) => {
@@ -1389,96 +1113,6 @@ export default function AdminDashboard({
     setEbLastConvertedAt(eb.lastConvertedAt || null);
     setEbEpubConversionStatus(eb.epubConversionStatus || null);
     setShowEbookForm(true);
-  };
-
-  const handleSaveArticle = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const payload = {
-      id: editingArticle?.id || `art-${Date.now()}`,
-      updatedAt: new Date().toISOString(),
-      slug: artSlug,
-      pillar: artPillar,
-      category: { 
-        en: CATEGORY_OPTIONS_BY_PILLAR[artPillar]?.find(c => c.value === artCategoryValue)?.label.en || artCatEN, 
-        zh: CATEGORY_OPTIONS_BY_PILLAR[artPillar]?.find(c => c.value === artCategoryValue)?.label.zh || artCatZH 
-      },
-      categoryValue: artCategoryValue,
-      contentFormat: artContentFormat,
-      articleFormat: artArticleFormat,
-      title: { en: artTitleEN, zh: artTitleZH },
-      excerpt: { en: artExcerptEN, zh: artExcerptZH },
-      content: { en: artBodyEN, zh: artBodyZH },
-      date: { 
-        en: (() => {
-          try {
-            if (!artDate) return "";
-            const d = new Date(artDate);
-            if (isNaN(d.getTime())) return "";
-            return d.toLocaleDateString("en-US", { year: 'numeric', month: 'short', day: '2-digit' }).toUpperCase().replace(',', '');
-          } catch (e) { return ""; }
-        })(),
-        zh: (() => {
-          try {
-            if (!artDate) return "";
-            const d = new Date(artDate);
-            if (isNaN(d.getTime())) return "";
-            return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
-          } catch (e) { return ""; }
-        })()
-      },
-      readTime: { en: artReadEN, zh: artReadZH },
-      tags: artTags.split(",").map(t => t.trim()).filter(Boolean),
-      cover: artCover,
-      pinterestImageUrl: artPinterestImageUrl,
-      adUrl: artAdUrl,
-      status: artStatus,
-      scheduledDate: artScheduledDate,
-      featured: artFeatured,
-      relatedArticles: artRelatedSlugs,
-      seo: {
-        titleEN: artSeoTitleEN,
-        titleZH: artSeoTitleZH,
-        descEN: artSeoDescEN,
-        descZH: artSeoDescZH
-      },
-      author: artAuthor,
-      canonicalLink: artCanonical
-    };
-
-    const newArticles = editingArticle 
-      ? articles.map(a => a.id === editingArticle.id ? payload : a)
-      : [payload, ...articles];
-      
-    setArticles(newArticles);
-    
-    if (editingArticle) {
-      addAuditLog("Edit Essay", `Updated essay "${artTitleEN}"`);
-    } else {
-      addAuditLog("Create Essay", `Published new essay "${artTitleEN}"`);
-    }
-    
-    // Sync to Supabase FIRST, so that Vite HMR reload from local API sync doesn't abort the DB request
-    if (supabase) {
-      try {
-        const { error } = await supabase.from('articles').upsert(payload);
-        if (error) {
-          console.error("Supabase sync error:", error);
-          setSyncError(`articles table sync: ${error.message || String(error)}`);
-        }
-      } catch (err) {
-        console.error("Supabase request failed:", err);
-      }
-    }
-
-    // Sync to API (AI Studio Codebase) - do this AFTER Supabase so HMR doesn't cancel Supabase
-    secureFetch("/api/sync-articles", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ articles: newArticles })
-    }).catch(console.error);
-
-    setShowArticleForm(false);
-    setEditingArticle(null);
   };
 
   const handleSaveNewsletter = async (e: React.FormEvent) => {
@@ -1751,7 +1385,7 @@ export default function AdminDashboard({
   };
 
   return (
-    <div className="min-h-screen bg-[#FDFBF7] flex flex-col font-sans text-stone-800 antialiased animate-fade-in" id="full-admin-dashboard">
+    <div className="min-h-screen bg-[#FDFBF7] flex flex-col font-sans text-stone-800 antialiased animate-fade-in" id="full-admin-dashboard" data-studio-active={activeTab === "content" && contentSubTab === "articles"}>
       {/* Header Panel */}
       <header className="bg-[#1A2F24] text-[#F4F1EB] px-8 py-4 border-b border-[#D8D2C6]/15 flex items-center justify-between shadow-md">
         <div className="flex items-center gap-3">
@@ -1778,7 +1412,7 @@ export default function AdminDashboard({
             {lang === "en" ? "Active: EN" : "当前: 中文"}
           </button>
           <button
-            onClick={onClose}
+            onClick={()=>{if(leaveArticle())onClose();}}
             className="text-[#F4F1EB]/70 hover:text-white bg-[#8B5A44]/10 hover:bg-[#8B5A44]/30 border border-[#D8D2C6]/20 px-4 py-2 rounded-sm text-xs font-display font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer"
           >
             <X className="w-4 h-4" />
@@ -1800,7 +1434,7 @@ export default function AdminDashboard({
             
             <nav className="space-y-1 px-3">
               <button
-                onClick={() => { setActiveTab("overview"); }}
+                onClick={() => { navigateAdmin("overview"); }}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xs font-display text-[11px] font-bold uppercase tracking-wider transition-all text-left ${activeTab === "overview" ? "bg-[#8B5A44]/20 text-[#F4F1EB] border-l-2 border-[#8B5A44]" : "text-[#F4F1EB]/70 hover:bg-white/5 hover:text-white"}`}
               >
                 <LayoutDashboard className="w-4 h-4 text-[#8B5A44]" />
@@ -1808,7 +1442,7 @@ export default function AdminDashboard({
               </button>
 
               <button
-                onClick={() => { setActiveTab("ecommerce"); }}
+                onClick={() => { navigateAdmin("ecommerce"); }}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xs font-display text-[11px] font-bold uppercase tracking-wider transition-all text-left ${activeTab === "ecommerce" ? "bg-[#8B5A44]/20 text-[#F4F1EB] border-l-2 border-[#8B5A44]" : "text-[#F4F1EB]/70 hover:bg-white/5 hover:text-white"}`}
               >
                 <ShoppingBag className="w-4 h-4 text-[#8B5A44]" />
@@ -1816,7 +1450,7 @@ export default function AdminDashboard({
               </button>
 
               <button
-                onClick={() => { setActiveTab("content"); }}
+                onClick={() => { navigateAdmin("content"); }}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xs font-display text-[11px] font-bold uppercase tracking-wider transition-all text-left ${activeTab === "content" ? "bg-[#8B5A44]/20 text-[#F4F1EB] border-l-2 border-[#8B5A44]" : "text-[#F4F1EB]/70 hover:bg-white/5 hover:text-white"}`}
               >
                 <BookOpen className="w-4 h-4 text-[#8B5A44]" />
@@ -1824,7 +1458,7 @@ export default function AdminDashboard({
               </button>
 
               <button
-                onClick={() => { setActiveTab("audio"); }}
+                onClick={() => { navigateAdmin("audio"); }}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xs font-display text-[11px] font-bold uppercase tracking-wider transition-all text-left ${activeTab === "audio" ? "bg-[#8B5A44]/20 text-[#F4F1EB] border-l-2 border-[#8B5A44]" : "text-[#F4F1EB]/70 hover:bg-white/5 hover:text-white"}`}
               >
                 <Music className="w-4 h-4 text-[#8B5A44]" />
@@ -1832,7 +1466,7 @@ export default function AdminDashboard({
               </button>
 
               <button
-                onClick={() => { setActiveTab("subscribers"); }}
+                onClick={() => { navigateAdmin("subscribers"); }}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xs font-display text-[11px] font-bold uppercase tracking-wider transition-all text-left ${activeTab === "subscribers" ? "bg-[#8B5A44]/20 text-[#F4F1EB] border-l-2 border-[#8B5A44]" : "text-[#F4F1EB]/70 hover:bg-white/5 hover:text-white"}`}
               >
                 <Users className="w-4 h-4 text-[#8B5A44]" />
@@ -1840,7 +1474,7 @@ export default function AdminDashboard({
               </button>
 
               <button
-                onClick={() => { setActiveTab("members"); }}
+                onClick={() => { navigateAdmin("members"); }}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xs font-display text-[11px] font-bold uppercase tracking-wider transition-all text-left ${activeTab === "members" ? "bg-[#8B5A44]/20 text-[#F4F1EB] border-l-2 border-[#8B5A44]" : "text-[#F4F1EB]/70 hover:bg-white/5 hover:text-white"}`}
               >
                 <Shield className="w-4 h-4 text-[#8B5A44]" />
@@ -1848,7 +1482,7 @@ export default function AdminDashboard({
               </button>
 
               <button
-                onClick={() => { setActiveTab("analytics"); }}
+                onClick={() => { navigateAdmin("analytics"); }}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xs font-display text-[11px] font-bold uppercase tracking-wider transition-all text-left ${activeTab === "analytics" ? "bg-[#8B5A44]/20 text-[#F4F1EB] border-l-2 border-[#8B5A44]" : "text-[#F4F1EB]/70 hover:bg-white/5 hover:text-white"}`}
               >
                 <BarChart3 className="w-4 h-4 text-[#8B5A44]" />
@@ -1856,7 +1490,7 @@ export default function AdminDashboard({
               </button>
 
               <button
-                onClick={() => { setActiveTab("settings"); }}
+                onClick={() => { navigateAdmin("settings"); }}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xs font-display text-[11px] font-bold uppercase tracking-wider transition-all text-left ${activeTab === "settings" ? "bg-[#8B5A44]/20 text-[#F4F1EB] border-l-2 border-[#8B5A44]" : "text-[#F4F1EB]/70 hover:bg-white/5 hover:text-white"}`}
               >
                 <SettingsIcon className="w-4 h-4 text-[#8B5A44]" />
@@ -2659,15 +2293,6 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                 
                 {/* Action Button depending on subtab */}
                 <div className="flex items-center gap-2">
-                  {contentSubTab === "articles" && !showArticleForm && (
-                    <button
-                      onClick={handleNewArticleClick}
-                      className="bg-[#1A2F24] hover:bg-[#8B5A44] text-[#F4F1EB] text-[10px] font-display uppercase tracking-wider px-3.5 py-2 rounded-xs flex items-center gap-1.5 transition-all cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>{lang === "en" ? "New Bilingual Essay" : "草拟双语智识文章"}</span>
-                    </button>
-                  )}
                   {contentSubTab === "newsletters" && !showNewsletterForm && (
                     <button
                       onClick={handleNewNewsletterClick}
@@ -2690,28 +2315,28 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
               </div>
 
               {/* Sub-Tab Headers */}
-              <div className="flex border-b border-[#D8D2C6]/30 gap-2 overflow-x-auto pb-px">
+              <div className="studio-host-tabs flex border-b border-[#D8D2C6]/30 gap-2 overflow-x-auto pb-px">
                 <button
-                  onClick={() => setContentSubTab("articles")}
+                  onClick={() => changeContentTab("articles")}
                   className={`px-4 py-2.5 text-xs font-display font-semibold uppercase tracking-wider border-b-2 transition-all cursor-pointer ${contentSubTab === "articles" ? "border-[#8B5A44] text-[#1A2F24]" : "border-transparent text-stone-400 hover:text-stone-700"}`}
                 >
                   {lang === "en" ? "Articles / Essays" : "1. 智识双语文章库"}
                 </button>
                 <button
-                  onClick={() => setContentSubTab("newsletters")}
+                  onClick={() => changeContentTab("newsletters")}
                   className={`px-4 py-2.5 text-xs font-display font-semibold uppercase tracking-wider border-b-2 transition-all cursor-pointer ${contentSubTab === "newsletters" ? "border-[#8B5A44] text-[#1A2F24]" : "border-transparent text-stone-400 hover:text-stone-700"}`}
                 >
                   {lang === "en" ? "Newsletters" : "2. SendFox 邮件简报广播站"}
                 </button>
                 
                 <button
-                  onClick={() => setContentSubTab("ebooks")}
+                  onClick={() => changeContentTab("ebooks")}
                   className={`px-4 py-2.5 text-xs font-display font-semibold uppercase tracking-wider border-b-2 transition-all cursor-pointer ${contentSubTab === "ebooks" ? "border-[#8B5A44] text-[#1A2F24]" : "border-transparent text-stone-400 hover:text-stone-700"}`}
                 >
                   {lang === "en" ? "Ebooks (Digital Volumes)" : "3. 电子著作 (StPageFlip)"}
                 </button>
                 <button
-                  onClick={() => setContentSubTab("comments")}
+                  onClick={() => changeContentTab("comments")}
                   className={`px-4 py-2.5 text-xs font-display font-semibold uppercase tracking-wider border-b-2 transition-all cursor-pointer flex items-center ${contentSubTab === "comments" ? "border-[#8B5A44] text-[#1A2F24]" : "border-transparent text-stone-400 hover:text-stone-700"}`}
                 >
                   {lang === "en" ? "Comments" : "4. 留言审核"}
@@ -2727,488 +2352,7 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
               {/* ========================================================= */}
               {/* SUB-TAB 1: ARTICLES                                       */}
               {/* ========================================================= */}
-              {contentSubTab === "articles" && (
-                <div className="space-y-6">
-                  {showArticleForm ? (
-                    /* ARTICLE FORM */
-                    <form onSubmit={handleSaveArticle} className="bg-[#E8DDCF]/20 border border-[#D8D2C6]/50 p-6 rounded-sm space-y-6 animate-fade-in">
-                      <div className="flex justify-between items-center pb-3 border-b border-[#D8D2C6]/30">
-                        <span className="font-serif text-sm font-semibold text-[#1A2F24]">
-                          {editingArticle ? (lang === "en" ? `Editing: ${artTitleEN}` : `正在修改文章: ${artTitleZH}`) : (lang === "en" ? "Draft New Bilingual Essay" : "起草全新双语专栏文章")}
-                        </span>
-                        <button type="button" onClick={() => setShowArticleForm(false)} className="text-stone-400 hover:text-[#1C1C1C]">
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-
-                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        {/* Form Inputs (Left & Center columns) */}
-                        <div className="lg:col-span-2 space-y-4 text-xs">
-                          {/* Title Pair */}
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                              <label className="block font-semibold text-[#1A2F24] mb-1">Title (English) *</label>
-                              <input type="text" required value={artTitleEN} onChange={(e) => handleArtTitleENChange(e.target.value)} placeholder="Refactoring Personal Efficiency" className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 text-stone-800" />
-                            </div>
-                            <div>
-                              <label className="block font-semibold text-[#1A2F24] mb-1">Title (中文标题) *</label>
-                              <input type="text" required value={artTitleZH} onChange={(e) => setArtTitleZH(e.target.value)} placeholder="个人效率层级的重组与重构" className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 text-stone-800" />
-                            </div>
-                          </div>
-
-                          {/* Slug, Author, and Pillar row */}
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div>
-                              <label className="block font-semibold text-[#1A2F24] mb-1">URL Slug (Auto-generated) *</label>
-                              <input type="text" required value={artSlug} onChange={(e) => setArtSlug(e.target.value)} placeholder="refactoring-personal-efficiency" className="w-full bg-stone-50 border border-[#D8D2C6] rounded-xs p-2 font-mono text-stone-600" />
-                            </div>
-                            <div>
-                              <label className="block font-semibold text-[#1A2F24] mb-1">Author Byline</label>
-                              <input type="text" value={artAuthor} onChange={(e) => setArtAuthor(e.target.value)} className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 text-stone-800" />
-                            </div>
-                            <div>
-                              <label className="block font-semibold text-[#1A2F24] mb-1">
-                                {lang === "en" ? "Core Cognitive Pillar *" : "核心认知支柱 *"}
-                              </label>
-                              <select
-                                value={artPillar}
-                                onChange={(e) => {
-                                  const pillar = e.target.value;
-                                  setArtPillar(pillar);
-                                  setArtCategoryValue("");
-                                }}
-                                className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 text-stone-800 focus:ring-[#8B5A44] focus:border-[#8B5A44]"
-                              >
-                                <optgroup label={lang === "en" ? "The Three Pillars" : "三大支柱"}>
-                                  {PILLAR_OPTIONS.map((p) => (
-                                    <option key={p.value} value={p.value}>{p.label[lang]}</option>
-                                  ))}
-                                </optgroup>
-                                <optgroup label={lang === "en" ? "Cross-Pillar" : "跨支柱"}>
-                                  <option value={SYSTEM_INTEGRATION_OPTION.value}>
-                                    {SYSTEM_INTEGRATION_OPTION.label[lang]}
-                                  </option>
-                                </optgroup>
-                              </select>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                              <label className="block font-semibold text-[#1A2F24] mb-1">
-                                {lang === "en" ? "Category Label *" : "内容分类标签 *"}
-                              </label>
-                              <select
-                                value={artCategoryValue}
-                                onChange={(e) => setArtCategoryValue(e.target.value)}
-                                className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 text-stone-800 focus:ring-[#8B5A44] focus:border-[#8B5A44]"
-                              >
-                                <option value="" disabled>
-                                  {lang === "en" ? "Select a category..." : "请选择分类..."}
-                                </option>
-                                {(CATEGORY_OPTIONS_BY_PILLAR[artPillar] || []).map((c) => (
-                                  <option key={c.value} value={c.value}>{c.label[lang]}</option>
-                                ))}
-                              </select>
-                              <p className="text-[11px] text-stone-400 mt-1">
-                                {lang === "en"
-                                  ? "Options update automatically based on the selected pillar."
-                                  : "分类选项将根据所选支柱自动切换。"}
-                              </p>
-                            </div>
-                            <div>
-                              <label className="block font-semibold text-[#1A2F24] mb-1">
-                                {lang === "en" ? "Article Format *" : "文章形式 *"}
-                              </label>
-                              <select
-                                value={artArticleFormat}
-                                onChange={(e) => setArtArticleFormat(e.target.value)}
-                                className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 text-stone-800 focus:ring-[#8B5A44] focus:border-[#8B5A44]"
-                              >
-                                {CONTENT_FORMAT_OPTIONS.map((f) => (
-                                  <option key={f.value} value={f.value}>{f.label[lang]}</option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-
-                          {/* Excerpt pair */}
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                              <label className="block font-semibold text-[#1A2F24] mb-1">Preview Summary (English)</label>
-                              <textarea value={artExcerptEN} onChange={(e) => setArtExcerptEN(e.target.value)} rows={2} placeholder="A deep study on refactoring cognitive workflows..." className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 text-stone-800" />
-                            </div>
-                            <div>
-                              <label className="block font-semibold text-[#1A2F24] mb-1">Preview Summary (中文预览摘要)</label>
-                              <textarea value={artExcerptZH} onChange={(e) => setArtExcerptZH(e.target.value)} rows={2} placeholder="关于重建大脑底层框架的深度洞察..." className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 text-stone-800" />
-                            </div>
-                          </div>
-
-                          {/* Body Content Markdown fields */}
-                          <div className="space-y-3">
-                            <div className="flex justify-between items-center">
-                              <label className="block font-semibold text-[#1A2F24]">English Body Content (Markdown syntax parsed paragraph-by-paragraph) *</label>
-                              <button 
-                                type="button" 
-                                onClick={() => handleCalculateReadTime(artBodyEN, artBodyZH, "art")} 
-                                className="text-[10px] bg-[#1A2F24]/10 text-[#1A2F24] hover:bg-[#8B5A44]/10 hover:text-[#8B5A44] px-2 py-0.5 rounded-sm font-semibold flex items-center gap-1 transition-all"
-                              >
-                                <RefreshCw className="w-3 h-3" />
-                                <span>Auto-Estimate Read Times</span>
-                              </button>
-                            </div>
-                            <textarea value={artBodyEN} onChange={(e) => setArtBodyEN(e.target.value)} onBlur={() => handleCalculateReadTime(artBodyEN, artBodyZH, "art")} rows={8} placeholder="Use ### for headers, ![alt](url) for images, {{audio:url}} for audio player..." className="w-full bg-white border border-[#D8D2C6] rounded-xs p-3 font-mono text-[11px] text-stone-800" />
-                          </div>
-
-                          <div className="space-y-3">
-                            <label className="block font-semibold text-[#1A2F24]">Chinese Body Content (中文正文) *</label>
-                            <textarea value={artBodyZH} onChange={(e) => setArtBodyZH(e.target.value)} onBlur={() => handleCalculateReadTime(artBodyEN, artBodyZH, "art")} rows={8} placeholder="使用 ### 表示标题，使用 Markdown 格式图片，及 {{audio:音频直链}} 注入音频广播..." className="w-full bg-white border border-[#D8D2C6] rounded-xs p-3 font-mono text-[11px] text-stone-800" />
-                          </div>
-
-                          {/* Tags */}
-                          <div className="grid grid-cols-1 gap-4">
-                            <div>
-                              <label className="block font-semibold text-[#1A2F24] mb-1">Search Tags (Comma-separated)</label>
-                              <input type="text" value={artTags} onChange={(e) => setArtTags(e.target.value)} placeholder="cognition, automation, personal-growth" className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 font-mono" />
-                            </div>
-                          </div>
-
-                          {/* Cover, Date and ReadTime */}
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                              <label className="block font-semibold text-[#1A2F24] mb-1">Featured Cover Image URL</label>
-                              <input type="text" value={artCover} onChange={(e) => setArtCover(e.target.value)} placeholder="https://cms.immersation.com/wp-content/uploads/..." className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 font-mono" />
-                              {artCover && (
-                                <div className="mt-2 border border-[#D8D2C6] rounded-sm overflow-hidden bg-stone-100 max-h-32 flex items-center justify-center">
-                                  <img src={artCover} alt="Cover preview" referrerPolicy="no-referrer" className="max-h-32 object-contain" onError={(e) => (e.currentTarget.style.display = 'none')} />
-                                </div>
-                              )}
-                            </div>
-                            <div>
-                              <label className="block font-semibold text-[#1A2F24] mb-1">{lang === "en" ? "Pinterest / Sidebar Image URL" : "Pinterest / 侧栏图片链接"}</label>
-                              <input type="url" value={artPinterestImageUrl} onChange={(e) => setArtPinterestImageUrl(e.target.value)} placeholder="https://your-wp-media.com/uploads/pin-image.jpg" className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 font-mono" />
-                              <p className="text-[10px] text-stone-400 mt-1">
-                                {lang === "en"
-                                  ? "Displayed in the article's right sidebar for saving/sharing."
-                                  : "显示于文章右侧栏，供收藏/分享使用。可选，与主图不同。"}
-                              </p>
-                              {artPinterestImageUrl && (
-                                <div className="mt-2 border border-[#D8D2C6] rounded-sm overflow-hidden bg-stone-100 max-h-32 flex items-center justify-center">
-                                  <img src={artPinterestImageUrl} alt="Pinterest preview" referrerPolicy="no-referrer" className="max-h-32 object-contain" onError={(e) => (e.currentTarget.style.display = 'none')} />
-                                </div>
-                              )}
-                            </div>
-                            <div>
-                              <label className="block font-semibold text-[#1A2F24] mb-1">{lang === "en" ? "Advertisement URL" : "侧栏广告图片链接"}</label>
-                              <input type="url" value={artAdUrl} onChange={(e) => setArtAdUrl(e.target.value)} placeholder="https://your-wp-media.com/uploads/ad-banner.jpg" className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 font-mono" />
-                              <p className="text-[10px] text-stone-400 mt-1">
-                                {lang === "en"
-                                  ? "Leave empty to hide advertisement block."
-                                  : "留空则不在文章页面显示广告区块。"}
-                              </p>
-                              {artAdUrl && (
-                                <div className="mt-2 border border-[#D8D2C6] rounded-sm overflow-hidden bg-stone-100 max-h-32 flex items-center justify-center">
-                                  <img src={artAdUrl} alt="Ad preview" referrerPolicy="no-referrer" className="max-h-32 object-contain" onError={(e) => (e.currentTarget.style.display = 'none')} />
-                                </div>
-                              )}
-                            </div>
-                            <div className="grid grid-cols-2 gap-2 md:col-span-2">
-                              <div>
-                                <label className="block font-semibold text-[#1A2F24] mb-1">Read Time (EN)</label>
-                                <input type="text" value={artReadEN} onChange={(e) => setArtReadEN(e.target.value)} placeholder="8 min read" className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 font-mono" />
-                              </div>
-                              <div>
-                                <label className="block font-semibold text-[#1A2F24] mb-1">Read Time (ZH)</label>
-                                <input type="text" value={artReadZH} onChange={(e) => setArtReadZH(e.target.value)} placeholder="8 分钟阅读" className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2" />
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="grid grid-cols-1 gap-2">
-                              <div>
-                                <label className="block font-semibold text-[#1A2F24] mb-1">Publish Date</label>
-                                <input type="date" value={artDate} onChange={(e) => setArtDate(e.target.value)} className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 font-mono" />
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                              <div>
-                                <label className="block font-semibold text-[#1A2F24] mb-1">Publishing Status</label>
-                                <select value={artStatus} onChange={(e) => setArtStatus(e.target.value)} className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 text-stone-800">
-                                  <option value="Published">Published (立即公开)</option>
-                                  <option value="Draft">Draft (暂存草稿)</option>
-                                  <option value="Scheduled">Scheduled (定时发布)</option>
-                                </select>
-                              </div>
-                              {artStatus === "Scheduled" && (
-                                <div>
-                                  <label className="block font-semibold text-[#1A2F24] mb-1">Scheduled Time</label>
-                                  <input type="datetime-local" value={artScheduledDate} onChange={(e) => setArtScheduledDate(e.target.value)} className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 font-mono text-stone-800" />
-                                </div>
-                              )}
-                              {artStatus !== "Scheduled" && (
-                                <div className="flex items-center gap-2 pt-6 pl-2">
-                                  <input type="checkbox" id="featured_toggle" checked={artFeatured} onChange={(e) => setArtFeatured(e.target.checked)} className="rounded border-[#D8D2C6] text-[#8B5A44] focus:ring-[#8B5A44]" />
-                                  <label htmlFor="featured_toggle" className="font-semibold text-stone-700 cursor-pointer select-none">Set as Featured</label>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Related articles and canonical link */}
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <RelatedArticlesMultiSelect
-                              lang={lang}
-                              articles={articles}
-                              currentSlug={artSlug}
-                              selectedSlugs={artRelatedSlugs}
-                              onChange={setArtRelatedSlugs}
-                            />
-                            <div>
-                              <label className="block font-semibold text-[#1A2F24] mb-1">Canonical/External Source Link</label>
-                              <input type="text" value={artCanonical} onChange={(e) => setArtCanonical(e.target.value)} placeholder="https://medium.com/immersation/..." className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2 font-mono" />
-                            </div>
-                          </div>
-
-                          {/* SEO Segment */}
-                          <div className="bg-[#1A2F24]/5 border border-[#D8D2C6]/30 p-4 rounded-xs space-y-4">
-                            <span className="font-serif text-xs font-bold text-[#1A2F24] block uppercase tracking-wider">Search Engine Optimization (SEO Meta Controls)</span>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div>
-                                <label className="block font-semibold text-[#1A2F24] mb-1">SEO Title (EN)</label>
-                                <input type="text" value={artSeoTitleEN} onChange={(e) => setArtSeoTitleEN(e.target.value)} placeholder="Override default English meta title" className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2" />
-                              </div>
-                              <div>
-                                <label className="block font-semibold text-[#1A2F24] mb-1">SEO Title (中文)</label>
-                                <input type="text" value={artSeoTitleZH} onChange={(e) => setArtSeoTitleZH(e.target.value)} placeholder="覆盖默认中文 meta 标题" className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2" />
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div>
-                                <label className="block font-semibold text-[#1A2F24] mb-1">SEO Description (EN)</label>
-                                <textarea value={artSeoDescEN} onChange={(e) => setArtSeoDescEN(e.target.value)} rows={2} placeholder="Meta description for search crawler index cards" className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2" />
-                              </div>
-                              <div>
-                                <label className="block font-semibold text-[#1A2F24] mb-1">SEO Description (中文)</label>
-                                <textarea value={artSeoDescZH} onChange={(e) => setArtSeoDescZH(e.target.value)} rows={2} placeholder="针对中文搜索引擎的 meta 描述文本" className="w-full bg-white border border-[#D8D2C6] rounded-xs p-2" />
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Media Upload Sidebar (Right column) */}
-                        <div className="space-y-4">
-                          {/* WordPress Media Uploader Widget */}
-                          <div className="bg-white border border-[#D8D2C6]/60 p-4 rounded-sm text-xs space-y-3 sticky top-4 shadow-sm">
-                            <div className="flex justify-between items-center pb-2 border-b border-[#D8D2C6]/20">
-                              <span className="font-serif font-semibold text-[#1A2F24] flex items-center gap-1.5">
-                                <Upload className="w-3.5 h-3.5 text-[#8B5A44]" />
-                                <span>WordPress Media Center</span>
-                              </span>
-                              <span className="text-[8px] font-mono text-[#8B5A44] bg-[#8B5A44]/10 px-1 py-0.5 rounded-sm">WordPress 媒体托管</span>
-                            </div>
-                            
-                            <p className="text-[10px] text-stone-500 leading-normal">
-                              {lang === "en" 
-                                ? "Avoid uploading images/audio files to local workspace or temporary servers. Drop assets here to simulate uploading to WordPress media API `/wp-json/wp/v2/media`." 
-                                : "杜绝将媒体资源提交至本地方，请在此 mock 上传文件到 WordPress 系统托管，系统将实时传回媒体直链及 Markdown 对应标签。"}
-                            </p>
-
-                            <div className="space-y-2 pt-1">
-                              <label className="border-2 border-dashed border-[#D8D2C6] hover:border-[#8B5A44] p-4 rounded-sm bg-[#F4F1EB]/30 text-center cursor-pointer transition-colors block">
-                                <input type="file" accept="image/*,audio/*" onChange={(e) => handleUploadFileMock(e, e.target.files?.[0]?.type.startsWith("audio") ? "audio" : "image")} className="hidden" />
-                                <Upload className="w-6 h-6 text-stone-400 mx-auto stroke-[1.2] mb-1" />
-                                <span className="text-[10px] font-semibold text-stone-700 block">{lang === "en" ? "Upload Photo or Podcast File" : "拖拽或点击上传图片/音频"}</span>
-                                <span className="text-[8px] text-stone-400 block font-mono mt-0.5">Max size 45MB</span>
-                              </label>
-                            </div>
-
-                            {uploadingFile && (
-                              <div className="flex items-center justify-center gap-2 py-3 bg-stone-50 rounded-sm text-stone-500 font-mono text-[9px] border border-stone-100">
-                                <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#8B5A44]" />
-                                <span>Negotiating WP REST API...</span>
-                              </div>
-                            )}
-
-                            {uploadedFileUrl && (
-                              <div className="bg-[#F4F1EB]/45 border border-[#D8D2C6]/40 p-3 rounded-xs space-y-2 mt-1 animate-fade-in text-[10px]">
-                                <div className="flex justify-between items-center">
-                                  <span className="font-semibold text-[#1A2F24] truncate max-w-[130px]">{uploadedFileName}</span>
-                                  <span className="text-[8px] bg-[#1A2F24]/10 text-[#1A2F24] px-1.5 py-0.5 rounded-xs font-mono font-bold uppercase">{uploadedFileType}</span>
-                                </div>
-                                <input type="text" readOnly value={uploadedFileUrl} className="w-full bg-white border border-[#D8D2C6]/40 rounded-xs p-1 text-[9px] font-mono text-stone-500" />
-                                
-                                <div className="space-y-1">
-                                  <span className="text-[8px] text-stone-400 block font-mono">INSERT INTO DRAFT BODIES:</span>
-                                  <div className="grid grid-cols-2 gap-1 font-sans text-[9px] font-bold">
-                                    <button 
-                                      type="button" 
-                                      onClick={() => handleInsertMediaTag("art_en")} 
-                                      className="bg-[#1A2F24] hover:bg-[#8B5A44] text-[#F4F1EB] py-1 rounded-sm text-center cursor-pointer"
-                                    >
-                                      + English Body
-                                    </button>
-                                    <button 
-                                      type="button" 
-                                      onClick={() => handleInsertMediaTag("art_zh")} 
-                                      className="bg-[#1A2F24] hover:bg-[#8B5A44] text-[#F4F1EB] py-1 rounded-sm text-center cursor-pointer"
-                                    >
-                                      + 中文正文
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Submit and Cancel Actions */}
-                      <div className="border-t border-[#D8D2C6]/30 pt-4 flex justify-end gap-2 text-xs">
-                        <button type="button" onClick={() => setShowArticleForm(false)} className="bg-white border border-stone-200 hover:bg-stone-50 px-5 py-2 rounded-xs font-semibold cursor-pointer">
-                          Cancel
-                        </button>
-                        <button type="submit" className="bg-[#1A2F24] hover:bg-[#8B5A44] text-[#F4F1EB] px-6 py-2 rounded-xs font-semibold cursor-pointer">
-                          {editingArticle ? (lang === "en" ? "Save Changes" : "保存修改") : (lang === "en" ? "Publish Essay" : "正式部署发布")}
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    /* ARTICLES TABLE LIST */
-                    <div className="bg-white border border-[#D8D2C6]/40 rounded-sm overflow-hidden animate-fade-in">
-                      <div className="p-4 bg-stone-50 border-b border-[#D8D2C6]/20 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-                        <span className="font-serif text-xs font-semibold text-[#1A2F24]">
-                          {lang === "en" ? `Bilingual Articles List (${articles.length} publications)` : `全栈文章归档汇总 (已部署 ${articles.length} 篇双语著作)`}
-                        </span>
-                        
-                        {/* Status legends */}
-                        <div className="flex gap-3 text-[10px] font-mono text-stone-400">
-                          <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span> Published</span>
-                          <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 bg-amber-500 rounded-full"></span> Scheduled</span>
-                          <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 bg-stone-300 rounded-full"></span> Draft</span>
-                        </div>
-                      </div>
-
-                      <div className="overflow-x-auto text-xs">
-                        <table className="w-full border-collapse">
-                          <thead>
-                            <tr className="bg-stone-50 border-b border-[#D8D2C6]/30 text-stone-500 font-mono text-[10px] text-left">
-                              <th className="p-3 pl-4 font-normal">ESSAY TITLE (DUAL-LANGUAGE) / SLUG</th>
-                              <th className="p-3 font-normal">PILLAR</th>
-                              <th className="p-3 font-normal">CATEGORY</th>
-                              <th className="p-3 font-normal">DATE</th>
-                              <th className="p-3 font-normal">STATUS</th>
-                              <th className="p-3 text-center font-normal">FEATURED</th>
-                              <th className="p-3 pr-4 text-right font-normal">ACTIONS</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-[#D8D2C6]/20">
-                            {articles.map((art, idx) => (
-                              <tr key={`${art.slug || art.id || 'essay'}-${idx}`} className="hover:bg-stone-50/50 transition-colors">
-                                <td className="p-3 pl-4 max-w-xs md:max-w-md min-w-[200px]">
-                                  <span className="text-[10px] bg-stone-100 text-stone-500 px-1 py-0.2 rounded-sm font-mono block w-max max-w-full truncate mb-1">{art.slug || art.id}</span>
-                                  <div className="font-serif font-bold text-[#1A2F24] truncate">{art.title?.en}</div>
-                                  <div className="text-[10px] text-stone-400 truncate font-sans">{art.title?.zh}</div>
-                                </td>
-                                <td className="p-3 font-mono text-[10px] uppercase">
-                                  <span className="px-1.5 py-0.5 rounded-sm bg-[#1A2F24]/5 text-[#1A2F24]">{art.pillar || "body"}</span>
-                                </td>
-                                <td className="p-3 text-stone-500 text-[10px]">
-                                  <div>{art.category?.en}</div>
-                                  <div className="text-stone-400">{art.category?.zh}</div>
-                                </td>
-                                <td className="p-3 font-mono text-[10px] text-stone-500">
-                                  {typeof art.date === "object" ? art.date.en : art.date}
-                                </td>
-                                <td className="p-3">
-                                  <span className={`inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded-sm uppercase font-semibold ${
-                                    art.status === "Published" || !art.status ? "bg-emerald-50 text-emerald-700" :
-                                    art.status === "Scheduled" ? "bg-amber-50 text-amber-700" :
-                                    "bg-stone-100 text-stone-500"
-                                  }`}>
-                                    <span className={`w-1 h-1 rounded-full ${
-                                      art.status === "Published" || !art.status ? "bg-emerald-500" :
-                                      art.status === "Scheduled" ? "bg-amber-500" :
-                                      "bg-stone-400"
-                                    }`}></span>
-                                    {art.status || "Published"}
-                                  </span>
-                                </td>
-                                <td className="p-3 text-center">
-                                  <input 
-                                    type="checkbox" 
-                                    checked={!!art.featured} 
-                                    onChange={async (e) => {
-                                      const updated = articles.map((a, i) => i === idx ? { ...a, featured: e.target.checked } : a);
-                                      setArticles(updated);
-                                      addAuditLog("Featured Essay Toggle", `Set essay "${art.title?.en}" featured status to ${e.target.checked}`);
-                                      
-                                      if (supabase) {
-                                        try {
-                                          const { error } = await supabase.from('articles').update({ featured: e.target.checked }).eq('id', art.id);
-                                          if (error) console.error("Supabase sync error:", error);
-                                        } catch (err) {}
-                                      }
-
-                                      secureFetch("/api/sync-articles", {
-                                        method: "POST",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({ articles: updated })
-                                      }).catch(console.error);
-                                    }}
-                                    className="rounded border-stone-300 text-[#8B5A44] focus:ring-[#8B5A44]" 
-                                  />
-                                </td>
-                                <td className="p-3 pr-4 text-right">
-                                  <div className="flex gap-2 justify-end">
-                                    <button 
-                                      onClick={() => handleEditArticle(art)} 
-                                      className="p-1 hover:bg-stone-100 text-[#1A2F24] hover:text-[#8B5A44] rounded-sm transition-colors cursor-pointer" 
-                                      title="Edit"
-                                    >
-                                      <Edit2 className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button 
-                                      onClick={() => {
-                                        setDeleteConfirm({
-                                          type: "article",
-                                          id: art.slug || art.id || String(idx),
-                                          title: lang === "en" ? art.title?.en : art.title?.zh,
-                                          action: async () => {
-                                            const newArticles = articles.filter((_, i) => i !== idx);
-                                            setArticles(newArticles);
-                                            addAuditLog("Delete Essay", `Purged essay "${art.title?.en}"`);
-                                            
-                                            if (supabase) {
-                                              try {
-                                                await supabase.from('articles').delete().eq('id', art.id);
-                                              } catch (err) {}
-                                            }
-
-                                            secureFetch("/api/sync-articles", {
-                                              method: "POST",
-                                              headers: { "Content-Type": "application/json" },
-                                              body: JSON.stringify({ articles: newArticles })
-                                            }).catch(console.error);
-                                          }
-                                        });
-                                      }} 
-                                      className="p-1 hover:bg-red-50 text-stone-400 hover:text-red-600 rounded-sm transition-colors cursor-pointer" 
-                                      title="Delete"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+              {contentSubTab === "articles" && <ContentStudio articles={articles} repository={articleRepository} owner={userEmail||'admin'} onDirtyChange={setArticleDirty} onSavingChange={setArticleSaving} onSaved={saved=>{setArticles(old=>[saved,...old.filter(a=>a.id!==saved.id)]);addAuditLog("Save Article",`Saved article "${saved.title.en}"`);}}/>}
 
               {/* ========================================================= */}
               {/* SUB-TAB 2: NEWSLETTERS (SENDFOX INTEGRATED)               */}
@@ -3245,7 +2389,7 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
                           {/* Slug, Target List, Pillar */}
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
-                              <label className="block font-semibold text-[#1A2F24] mb-1">Archive URL Slug * {editingArticle && <span className="text-stone-400 font-normal text-xs">(Auto-generation disabled on edit to prevent broken links)</span>}</label>
+                              <label className="block font-semibold text-[#1A2F24] mb-1">Archive URL Slug * {editingNewsletter && <span className="text-stone-400 font-normal text-xs">(Auto-generation disabled on edit to prevent broken links)</span>}</label>
                               <input type="text" required value={nlSlug} onChange={(e) => setNlSlug(e.target.value)} placeholder="personal-leverage-refactor" className="w-full bg-stone-50 border border-[#D8D2C6] rounded-xs p-2 font-mono text-stone-600" />
                             </div>
                             <div>

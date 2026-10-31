@@ -82,3 +82,28 @@ export function TableOfContents({ headings, lang, activeHeadingId, collapsible =
     </ul>}
   </nav>;
 }
+
+
+/** Shared by public articles and the isolated Studio preview. */
+export function useArticleHeadingSpy(contentKey: string) {
+  const [active, setActive] = useState<string | null>(null);
+  const {scrollY} = useScroll();
+  useEffect(() => {
+    let frame = 0;
+    setActive(null);
+    const measure = () => {
+      frame = 0;
+      let next: string | null = null;
+      for (const heading of document.querySelectorAll<HTMLElement>('#article-reader-view .prose-immersation [id]')) {
+        if (heading.getBoundingClientRect().top <= 160) next = heading.id; else break;
+      }
+      setActive(previous => previous === next ? previous : next);
+    };
+    const schedule = () => {if (!frame) frame = requestAnimationFrame(measure);};
+    const unsubscribe = scrollY.on('change', schedule);
+    const timer = window.setTimeout(schedule, 400);
+    window.addEventListener('resize',schedule,{passive:true});
+    return () => {unsubscribe();clearTimeout(timer);cancelAnimationFrame(frame);window.removeEventListener('resize',schedule);};
+  },[contentKey,scrollY]);
+  return active;
+}
