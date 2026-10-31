@@ -226,15 +226,18 @@ const getPathForView = (view: string, slug?: string | null): string => {
     case "editorial-intelligence": return "/editorial-intelligence";
     case "reading-room": return "/reading-room";
     case "listening-room": return "/listening-room";
+    case "admin": return "/admin";
     case "home":
     default: return "/";
   }
 };
 
-const getViewForPath = (pathWithHash: string): { view: "home" | "about" | "privacy" | "terms" | "newsletter" | "pillar-mindfulness" | "pillar-ai" | "pillar-wealth" | "articles" | "reading-room" | "listening-room" | "digital-publishing" | "editorial-intelligence" | "ai-toolkits" | "audio-experiences" | "wealth-frameworks" | "pillars"; slug: string | null } => {
+const getViewForPath = (pathWithHash: string): { view: "home" | "about" | "privacy" | "terms" | "newsletter" | "pillar-mindfulness" | "pillar-ai" | "pillar-wealth" | "articles" | "reading-room" | "listening-room" | "digital-publishing" | "editorial-intelligence" | "ai-toolkits" | "audio-experiences" | "wealth-frameworks" | "pillars" | "admin"; slug: string | null } => {
   const rawPath = pathWithHash.toLowerCase().split('?')[0].split('#')[0];
   const cleanPath = rawPath.length > 1 ? rawPath.replace(/\/+$/, "") : rawPath;
   
+  if (cleanPath === "/admin") return { view: "admin", slug: null };
+
   if (cleanPath === "/about-us" || cleanPath.includes("about")) {
     return { view: "about", slug: null };
   }
@@ -2089,7 +2092,7 @@ export default function App() {
                             : (lang === "en" ? "ACTIVE THOUGHT LEADER" : "活跃思想领袖")}
                         </span>
                         <h4 className="font-serif text-lg font-normal text-[#1A2F24] truncate">
-                          {isAdmin ? "support@immersation.com" : userEmail}
+                          {userEmail}
                         </h4>
                         <div className="flex items-center gap-2 mt-2">
                           <span className={`w-2 h-2 rounded-full animate-pulse ${isAdmin ? "bg-red-600" : "bg-[#8B5A44]"}`}></span>
