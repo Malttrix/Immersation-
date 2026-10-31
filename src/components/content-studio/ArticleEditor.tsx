@@ -165,7 +165,7 @@ export function ArticleEditor({
       )}
       <p className="studio-recovery" role="status">
         {draft.recoveryStatus ||
-          "Changes are saved remotely only when you choose Save."}
+          "Changes are committed only when you choose Save."}
       </p>
       <div className="studio-editor-controls">
         <div

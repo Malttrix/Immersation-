@@ -248,6 +248,7 @@ export function magazineDirective(
   return `\n\n:::magazine ${layout} ${JSON.stringify(safe)}\n\n${body}\n\n:::\n\n`;
 }
 export interface ArticleRepository {
+  saveDestination?: "remote" | "browser-review";
   list(): Promise<StudioArticle[]>;
   save(article: StudioArticle, revision: number): Promise<StudioArticle>;
 }

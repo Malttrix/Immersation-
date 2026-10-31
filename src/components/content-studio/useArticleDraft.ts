@@ -128,10 +128,10 @@ export function useArticleDraft(
       setRecovery(null);
       try {
         localStorage.removeItem(key);
-        setRecoveryStatus("Remote save confirmed.");
+        setRecoveryStatus(repository.saveDestination === "browser-review" ? "Local review save confirmed. Production is unchanged." : "Remote save confirmed.");
       } catch {
         setRecoveryStatus(
-          "Remote save confirmed; browser recovery cleanup failed.",
+          "Save confirmed; browser recovery cleanup failed.",
         );
       }
       onSaved(saved);

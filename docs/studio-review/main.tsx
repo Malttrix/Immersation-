@@ -23,6 +23,7 @@ function Review() {
     [fail, setFail] = useState(false);
   const repository = useMemo<ArticleRepository>(
     () => ({
+      saveDestination: "browser-review",
       list: async () => seed(),
       save: async (a, revision) => {
         if (fail)
