@@ -252,7 +252,7 @@ test("additive migration saves, preserves unrelated columns and foreign keys, re
   const pg = new PGlite();
   try {
     await pg.exec(
-      `create role anon;create role authenticated;create table articles(id text primary key,title jsonb,excerpt jsonb,content jsonb,category jsonb,date jsonb,"readTime" jsonb,pillar text,featured boolean default false,cover text,audio text,created_at timestamptz default now(),legacy_extra jsonb, compatibility_default boolean not null default false, generated_label text generated always as (id || '-derived') stored);create table references_test(article_id text references articles(id) on delete cascade);create function is_security_admin() returns boolean language sql stable as $$select coalesce(current_setting('test.admin',true),'false')='true'$$;alter table articles enable row level security;grant select on articles to anon,authenticated;`,
+      `create role anon;create role authenticated;create table articles(id text primary key,slug text,title jsonb,excerpt jsonb,content jsonb,category jsonb,date jsonb,"readTime" jsonb,pillar text,featured boolean default false,cover text,audio text,created_at timestamptz default now(),legacy_extra jsonb, compatibility_default boolean not null default false, generated_label text generated always as (id || '-derived') stored);create table references_test(article_id text references articles(id) on delete cascade);create function is_security_admin() returns boolean language sql stable as $$select coalesce(current_setting('test.admin',true),'false')='true'$$;alter table articles enable row level security;grant select on articles to anon,authenticated;`,
     );
     await pg.exec(
       readFileSync(

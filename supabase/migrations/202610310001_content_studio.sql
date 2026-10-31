@@ -32,23 +32,23 @@ create trigger studio_revision_guard before update on public.articles for each r
 
 create or replace function public.studio_save_article(p_article jsonb,p_expected_revision integer) returns jsonb
 language plpgsql security definer set search_path=public,pg_temp as $$
-declare previous public.articles; saved public.articles; merged jsonb; target text:=p_article->>'id'; slug text:=coalesce(p_article->'studio'->>'slug',p_article->>'slug'); found_row boolean; setters text; result jsonb; columns_list text; projection_list text;
+declare previous public.articles; saved public.articles; merged jsonb; v_target text:=p_article->>'id'; v_slug text:=coalesce(p_article->'studio'->>'slug',p_article->>'slug'); found_row boolean; setters text; result jsonb; columns_list text; projection_list text;
 begin
  if not public.is_security_admin() then raise exception 'Administrator access required' using errcode='42501'; end if;
  if p_expected_revision is null or p_expected_revision<0 then raise exception 'Expected revision is required'; end if;
- if target is null or target='' or slug is null or slug='' or jsonb_typeof(p_article->'title') is distinct from 'object' then raise exception 'Invalid article'; end if;
+ if v_target is null or v_target='' or v_slug is null or v_slug='' or jsonb_typeof(p_article->'title') is distinct from 'object' then raise exception 'Invalid article'; end if;
  if coalesce(p_article->'studio'->>'status','') not in ('Draft','Published','Scheduled') then raise exception 'Invalid publication status'; end if;
- perform pg_advisory_xact_lock(hashtext('studio-slug:'||slug));
- perform pg_advisory_xact_lock(hashtext('studio-id:'||target));
- select * into previous from articles where id=target for update; found_row:=found;
+ perform pg_advisory_xact_lock(hashtext('studio-slug:'||v_slug));
+ perform pg_advisory_xact_lock(hashtext('studio-id:'||v_target));
+ select * into previous from articles where id=v_target for update; found_row:=found;
  if coalesce(previous.studio_revision,0)<>p_expected_revision or (not found_row and p_expected_revision<>0) then raise exception 'Article revision conflict' using errcode='40001'; end if;
- if exists(select 1 from articles a where a.id<>target and coalesce(nullif(a.studio->>'slug',''),nullif(to_jsonb(a)->>'slug',''),a.id)=slug) then raise exception 'Article slug already exists' using errcode='23505'; end if;
- merged:=(case when found_row then to_jsonb(previous) else '{}'::jsonb end)||p_article||jsonb_build_object('id',target,'created_at',coalesce(previous.created_at,now()),'studio_revision',p_expected_revision+1);
+ if exists(select 1 from articles a where a.id<>v_target and coalesce(nullif(a.studio->>'slug',''),nullif(to_jsonb(a)->>'slug',''),a.id)=v_slug) then raise exception 'Article slug already exists' using errcode='23505'; end if;
+ merged:=(case when found_row then to_jsonb(previous) else '{}'::jsonb end)||p_article||jsonb_build_object('id',v_target,'created_at',coalesce(previous.created_at,now()),'studio_revision',p_expected_revision+1);
  -- jsonb_populate_record preserves all existing columns and ignores metadata without columns.
  saved:=jsonb_populate_record(null::public.articles,merged);
  if found_row then
    select string_agg(format('%I = ($1).%I',attname,attname),', ') into setters from pg_attribute where attrelid='public.articles'::regclass and attnum>0 and not attisdropped and attname<>'id' and attgenerated='';
-   execute format('update public.articles set %s where id=$2 returning to_jsonb(articles)',setters) into result using saved,target;
+   execute format('update public.articles set %s where id=$2 returning to_jsonb(articles)',setters) into result using saved,v_target;
  else
    -- Omit absent and generated columns so database defaults/expressions remain authoritative.
    select string_agg(format('%I',attname),', '),string_agg(format('r.%I',attname),', ')
