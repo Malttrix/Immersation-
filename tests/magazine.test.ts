@@ -98,3 +98,9 @@ test('automatic photography wraps one bounded introduction, leaves text in seque
   assert.doesNotMatch(render(source,{cover:'/photo.jpg',automaticBackground:false}),/data-magazine-layout/);
   assert.doesNotMatch(render(source,{cover:'javascript:bad'}),/data-magazine-layout/);
 });
+
+
+test('background overlay and mobile fallback are allowlisted and sanitized',()=>{
+  const html=render(':::magazine background {"src":"https://example.com/photo.jpg","overlay":0.5,"mobileSrc":"javascript:alert(1)","mobileFallback":"plain"}\n\nOriginal text.\n\n:::');
+  assert.match(html,/data-magazine-overlay="0.5"/);assert.match(html,/data-magazine-mobile-fallback="plain"/);assert.doesNotMatch(html,/javascript:/);
+});
