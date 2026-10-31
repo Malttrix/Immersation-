@@ -12,6 +12,7 @@ function Preview() {
   const [mode, setMode] = useState<ArticlePresentation>('premium-magazine');
   const [lang, setLang] = useState<'en'|'zh'>('en');
   const [saved, setSaved] = useState(false);
+  const [intensity, setIntensity] = useState(24);
   const [status, setStatus] = useState('Loading the existing article…');
   useEffect(() => {
     let active = true;
@@ -31,8 +32,9 @@ function Preview() {
         <option value="classic-editorial">Classic Editorial</option><option value="premium-magazine">Premium Magazine</option><option value="visual-feature">Visual Feature</option>
       </select></label>
       <button onClick={()=>setLang(lang==='en'?'zh':'en')}>{lang==='en'?'中文':'English'}</button>
+      <label style={{fontSize:12}}>Background {intensity}% <input aria-label="Background intensity" type="range" min="12" max="28" value={intensity} onChange={e=>setIntensity(Number(e.target.value))} /></label>
     </nav>
-    {article ? <ArticlePage article={{...article,presentation:mode}} lang={lang} onBack={()=>{window.location.href='/articles/mindfulness-through-manual-chores';}} onBookmark={()=>setSaved(!saved)} isBookmarked={saved} /> : <p style={{padding:100}}>{status}</p>}
+    {article ? <ArticlePage article={{...article,presentation:mode,editorial:{...article.editorial,backgroundIntensity:intensity/100}}} lang={lang} onBack={()=>{window.location.href='/articles/mindfulness-through-manual-chores';}} onBookmark={()=>setSaved(!saved)} isBookmarked={saved} /> : <p style={{padding:100}}>{status}</p>}
     <p style={{maxWidth:700,margin:'auto',padding:20,fontSize:12}}>{status}</p>
   </div>;
 }

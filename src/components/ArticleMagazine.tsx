@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
 import { editorialImageSource, type MagazineLayout } from '../lib/magazine-markdown';
+import { backgroundIntensity, imageAspect, imageFocal } from '../lib/editorial-settings';
 
-/** Reserved geometry prevents image failures and slow connections from shifting the reader. */
-export function EditorialImage({ src, alt = '', caption, priority = false, decorative = false, className = '', inline = false }: {
+/** Complete images retain diagrams/text; only explicitly photographic assets receive a crop. */
+export function EditorialImage({ src, alt = '', caption, priority = false, decorative = false, className = '', inline = false,
+  treatment = 'complete', aspect, focal }: {
   src?: string; alt?: string; caption?: string; priority?: boolean; decorative?: boolean; className?: string; inline?: boolean;
+  treatment?: 'complete' | 'photograph'; aspect?: string; focal?: string;
 }) {
   const [failedSource, setFailedSource] = useState<string>();
   const safeSource = editorialImageSource(src);
@@ -11,31 +14,49 @@ export function EditorialImage({ src, alt = '', caption, priority = false, decor
   const image = !failed && <img src={safeSource} alt={decorative ? '' : alt} aria-hidden={decorative || undefined}
     width={1672} height={941} loading={priority ? 'eager' : 'lazy'} decoding="async"
     fetchPriority={priority ? 'high' : undefined} referrerPolicy="no-referrer"
-    onError={() => setFailedSource(safeSource)} />;
+    style={{ objectPosition: imageFocal(focal) }} onError={() => setFailedSource(safeSource)} />;
   if (decorative) return failed ? null : <div className={`magazine-backdrop ${className}`} aria-hidden="true">{image}</div>;
   const Frame = inline ? 'span' : 'figure';
   const Surface = inline ? 'span' : 'div';
   const Caption = inline ? 'span' : 'figcaption';
-  return <Frame className={`magazine-image ${className}`}>
+  return <Frame className={`magazine-image ${className}`} data-image-treatment={treatment}
+    style={{ '--editorial-image-ratio': imageAspect(aspect) } as React.CSSProperties}>
     <Surface className="magazine-image-surface">{image || <span className="magazine-image-fallback" role={alt ? 'img' : undefined} aria-label={alt || undefined} />}</Surface>
     {caption && <Caption className="magazine-image-caption">{caption}</Caption>}
   </Frame>;
 }
 
-export function MagazineBlock({ layout, src, alt, caption, side, children }: {
-  layout: MagazineLayout; src?: string; alt?: string; caption?: string; side?: string; children?: React.ReactNode;
+export function EditorialBackgroundSection({ src, intensity, focal = 'right', children }: {
+  src?: string; intensity?: unknown; focal?: string; children?: React.ReactNode;
 }) {
-  if (layout === 'quote') return <blockquote className="magazine-pullquote">{children}</blockquote>;
-  if (layout === 'image') return <div className="magazine-full-image"><EditorialImage src={src} alt={alt} caption={caption} />{children}</div>;
-  if (layout === 'split') return <section className={`magazine-split ${side === 'right' ? 'magazine-split-right' : ''}`}>
-    <EditorialImage src={src} alt={alt} caption={caption} /><div className="magazine-split-copy">{children}</div>
-  </section>;
-  return <section className="magazine-photo-section">
-    <EditorialImage src={src} decorative /><div className="magazine-photo-copy">{children}</div>
+  const alpha = backgroundIntensity(intensity);
+  return <section className="magazine-photo-section" data-background-intensity={alpha}
+    style={{ '--editorial-photo-alpha': alpha } as React.CSSProperties}>
+    <EditorialImage src={src} decorative focal={focal} /><div className="magazine-photo-copy">{children}</div>
   </section>;
 }
+export function EditorialPullQuote({ children }: { children?: React.ReactNode }) {
+  return <blockquote className="magazine-pullquote">{children}</blockquote>;
+}
+export function EditorialSplitSection({ src, alt, caption, side, fit, focal, aspect, children }: MagazineBlockProps) {
+  return <section className={`magazine-split ${side === 'right' ? 'magazine-split-right' : ''}`}>
+    <EditorialImage src={src} alt={alt} caption={caption} treatment={fit === 'cover' ? 'photograph' : 'complete'} focal={focal} aspect={aspect} />
+    <div className="magazine-split-copy">{children}</div>
+  </section>;
+}
+type MagazineBlockProps = {
+  layout?: MagazineLayout; src?: string; alt?: string; caption?: string; side?: string; children?: React.ReactNode;
+  intensity?: unknown; focal?: string; fit?: string; aspect?: string;
+};
+export function MagazineBlock(props: MagazineBlockProps) {
+  const { layout, src, alt, caption, fit, focal, aspect, children } = props;
+  if (layout === 'quote') return <EditorialPullQuote>{children}</EditorialPullQuote>;
+  if (layout === 'image') return <div className="magazine-full-image"><EditorialImage src={src} alt={alt} caption={caption}
+    treatment={fit === 'cover' ? 'photograph' : 'complete'} focal={focal} aspect={aspect} />{children}</div>;
+  if (layout === 'split') return <EditorialSplitSection {...props} />;
+  return <EditorialBackgroundSection {...props} />;
+}
 
-/** A shared opening supports distinct compositions without duplicating article markup. */
 export type ArticlePresentation = 'classic-editorial' | 'premium-magazine' | 'visual-feature';
 export function resolveArticlePresentation(value: unknown): ArticlePresentation {
   const mode = typeof value === 'object' && value ? (value as { mode?: unknown }).mode : value;
@@ -46,4 +67,13 @@ export function resolveArticlePresentation(value: unknown): ArticlePresentation 
 }
 export function ArticleOpening({ children, hero }: { children: React.ReactNode; hero?: React.ReactNode }) {
   return <div className="journal-opening">{children}{hero}</div>;
+}
+export function MagazineHeader({ children }: { children: React.ReactNode }) {
+  return <header className="magazine-masthead">{children}</header>;
+}
+export function MagazineReaderGrid({ children, sidebar }: { children: React.ReactNode; sidebar: React.ReactNode }) {
+  return <div className="journal-reading-grid"><div className="journal-reading-main">{children}</div>{sidebar}</div>;
+}
+export function MagazineSidebar({ children, lang }: { children: React.ReactNode; lang: 'en'|'zh' }) {
+  return <aside className="journal-sidebar" aria-label={lang === 'en' ? 'Article reading tools' : '文章阅读工具'}><div className="journal-sidebar-inner">{children}</div></aside>;
 }

@@ -8,7 +8,10 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
 import remarkMagazine, { magazineSanitizeSchema, type MagazineLayout } from "../lib/magazine-markdown";
-import { EditorialImage, MagazineBlock, ArticleOpening, resolveArticlePresentation } from "./ArticleMagazine";
+import { EditorialImage, MagazineBlock, ArticleOpening, MagazineHeader, MagazineReaderGrid, MagazineSidebar, resolveArticlePresentation } from "./ArticleMagazine";
+import { ReadingProgressMarker, TableOfContents, useArticleReadingProgress } from "./ArticleReadingTools";
+export { ReadingProgressMarker, TableOfContents } from "./ArticleReadingTools";
+
 import { 
   ArrowLeft, 
   ArrowRight, 
@@ -60,89 +63,7 @@ export interface Article {
   adUrl?: string;
   /** Optional presentation metadata; absent/unknown values use Premium Magazine. */
   presentation?: string | { mode?: string };
-}
-
-// ----------------------------------------------------------------------------
-// 1. READING PROGRESS MARKER
-// A thin viewport rail uses a Motion value without React updates on every scroll.
-// ----------------------------------------------------------------------------
-export function ReadingProgressMarker({
-  targetRef,
-  lang,
-}: {
-  targetRef: React.RefObject<HTMLElement | null>;
-  lang: "en" | "zh";
-}) {
-  const { scrollYProgress } = useScroll({ target: targetRef, offset: ["start start", "end end"] });
-  return <div className="journal-progress" role="img" aria-label={lang === "en" ? "Reading progress" : "阅读进度"}>
-    <motion.div style={{ scaleX: scrollYProgress }} />
-  </div>;
-}
-
-// ----------------------------------------------------------------------------
-// 2. ACTIVE TABLE OF CONTENTS
-// Discreet collapsed navigation retains heading anchors and active state.
-// ----------------------------------------------------------------------------
-export function TableOfContents({
-  headings,
-  lang,
-  activeHeadingId,
-}: {
-  headings: { text: string; level: number; id: string }[];
-  lang: "en" | "zh";
-  activeHeadingId?: string | null;
-}) {
-  const [open, setOpen] = useState(false);
-
-  if (headings.length === 0) return null;
-
-  return (
-    <div className="journal-toc">
-      <button
-        aria-expanded={open}
-        aria-controls="journal-contents"
-        onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-full text-[11px] tracking-[0.2em] uppercase text-[#1A2F24] font-bold shrink-0 cursor-pointer"
-      >
-        {lang === "en" ? "In This Article" : "本文目录"}
-        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
-      </button>
-      {open && (
-        <ul id="journal-contents" className="mt-5 flex flex-col gap-2 overflow-y-auto pr-1 toc-scroll">
-          {headings.map((h, i) => {
-            const headingId = h.id;
-            const isActive = activeHeadingId === headingId;
-            return (
-              <li key={i} style={{ paddingLeft: `${(h.level - 2) * 10}px` }}>
-                <a
-                  href={`#${headingId}`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    const el = document.getElementById(headingId);
-                    if (el) {
-                      const yOffset = -90;
-                      const rect = el.getBoundingClientRect();
-                      const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-                      const targetY = rect.top + scrollTop + yOffset;
-                      window.scrollTo({ top: targetY, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-                      window.history.pushState(null, "", `#${headingId}`);
-                    }
-                  }}
-                  className={`text-[12.5px] leading-snug block transition-all duration-200 border-l-2 py-1 pl-2.5 -ml-px ${
-                    isActive
-                      ? "border-[#B69A6B] text-[#1A2F24] font-bold bg-[#B69A6B]/10 rounded-r-xs"
-                      : "border-transparent text-[#1C1C1C]/70 hover:text-[#8B5A44] hover:border-[#D8D2C6]"
-                  }`}
-                >
-                  {h.text}
-                </a>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
-  );
+  editorial?: { backgroundIntensity?: number; backgroundImage?: string; backgroundFocal?: string; automaticBackground?: boolean; coverTreatment?: "complete" | "photograph"; coverFocal?: string };
 }
 
 // ----------------------------------------------------------------------------
@@ -214,13 +135,13 @@ export function SidebarCard({
 export function HeroImage({
   src,
   alt,
-  className = "",
+  className = "", treatment = "complete", focal,
 }: {
   src: string;
   alt: string;
-  className?: string;
+  className?: string; treatment?: "complete" | "photograph"; focal?: string;
 }) {
-  return <EditorialImage src={src} alt={alt} priority className={`magazine-cover ${className}`} />;
+  return <EditorialImage src={src} alt={alt} priority treatment={treatment} focal={focal} aspect="16/9" className={`magazine-cover ${className}`} />;
 }
 
 // ----------------------------------------------------------------------------
@@ -362,8 +283,8 @@ export function ArticlePage({
   activeArticleStats,
   activeHeadingId,
 }: ArticlePageProps) {
-  const articleBodyRef = useRef<HTMLElement>(null);
-  const [pinterestOpen, setPinterestOpen] = useState(false);
+  const articleBodyRef = useRef<HTMLDivElement>(null);
+  const progress = useArticleReadingProgress(articleBodyRef, `${article.slug}:${lang}`);
   const presentation = resolveArticlePresentation(article.presentation);
 
   const generateSlug = (text: string) => {
@@ -557,7 +478,8 @@ export function ArticlePage({
       const layout = p.dataMagazineLayout as MagazineLayout;
       if (!['image', 'background', 'quote', 'split'].includes(layout)) return <section>{children}</section>;
       return <MagazineBlock layout={layout} src={p.dataMagazineImage} alt={p.dataMagazineAlt}
-        caption={p.dataMagazineCaption} side={p.dataMagazineSide}>{children}</MagazineBlock>;
+        caption={p.dataMagazineCaption} side={p.dataMagazineSide} intensity={p.dataMagazineIntensity}
+        focal={p.dataMagazineFocal} fit={p.dataMagazineFit} aspect={p.dataMagazineAspect}>{children}</MagazineBlock>;
     },
     hr: () => <hr className="my-10 border-t border-[#D8D2C6]" />,
   }), []);
@@ -598,9 +520,9 @@ export function ArticlePage({
           <div className="magazine-reader-grid">
 
             {/* MAIN ARTICLE COLUMN */}
-            <article ref={articleBodyRef} className="magazine-article">
-              <ArticleOpening hero={article.cover ? <HeroImage src={article.cover} alt={article.title[lang]} /> : null}>
-              <header className="magazine-masthead">
+            <article className="magazine-article">
+              <ArticleOpening hero={article.cover ? <HeroImage src={article.cover} alt={article.title[lang]} treatment={article.editorial?.coverTreatment} focal={article.editorial?.coverFocal} /> : null}>
+              <MagazineHeader>
               <p className="magazine-category">
                 {article.category[lang]}
               </p>
@@ -631,25 +553,32 @@ export function ArticlePage({
                 )}
               </div>
               
-              </header>
+              </MagazineHeader>
               </ArticleOpening>
 
-              {/* Contents stay collapsed until requested, at every width. */}
-              <div className="journal-reading-tools">
+              <div className="journal-mobile-tools">
                 <TableOfContents headings={headings} lang={lang} activeHeadingId={activeHeadingId} />
+                <a href={`https://pinterest.com/pin/create/button?url=${encodeURIComponent(typeof window !== 'undefined' ? window.location.href : '')}&media=${encodeURIComponent(article.pinterestImageUrl || article.cover || '')}&description=${encodeURIComponent(article.title[lang])}`}
+                  target="_blank" rel="noopener noreferrer" aria-label={lang === 'en' ? 'Save article on Pinterest' : '在 Pinterest 上收藏文章'}>Pinterest <Share2 size={13} /></a>
               </div>
-
-
+              <MagazineReaderGrid sidebar={<MagazineSidebar lang={lang}>
+                <ReadingProgressMarker progress={progress} lang={lang} />
+                <TableOfContents headings={headings} lang={lang} activeHeadingId={activeHeadingId} collapsible={false} />
+                <SidebarPinterestWidget imageUrl={article.pinterestImageUrl || article.cover} altText={article.title[lang]} lang={lang}
+                  pageUrl={typeof window !== 'undefined' ? window.location.href : undefined} />
+              </MagazineSidebar>}>
               {/* Body Content */}
-              <div className="prose-immersation">
+              <div ref={articleBodyRef} className="prose-immersation" id="article-reading-content">
                 <ReactMarkdown
-                  remarkPlugins={[remarkGfm, [remarkMagazine, { slug: article.slug, cover: article.cover }]]}
+                  remarkPlugins={[remarkGfm, [remarkMagazine, { slug: article.slug, cover: article.cover, ...article.editorial }]]}
                   rehypePlugins={[[rehypeSanitize, magazineSanitizeSchema]]}
                   components={markdownComponents}
                 >
                   {cleanedContent}
                 </ReactMarkdown>
               </div>
+
+              </MagazineReaderGrid>
 
               {/* Article Tags */}
               {article.tags.length > 0 && <div className="journal-tags flex flex-wrap gap-4 mt-12 pt-8 border-t border-[#D8D2C6]/50">
@@ -672,12 +601,6 @@ export function ArticlePage({
                 </section>}
                 <div className="journal-support">
                   <SidebarNewsletterCTA lang={lang} />
-                  <details className="journal-pinterest" onToggle={e => setPinterestOpen(e.currentTarget.open)}>
-                    <summary>{lang === "en" ? "Save this story on Pinterest" : "在 Pinterest 上收藏这篇文章"}</summary>
-                    {pinterestOpen && <SidebarPinterestWidget imageUrl={article.pinterestImageUrl || article.cover}
-                      altText={article.title[lang]} lang={lang}
-                      pageUrl={typeof window !== "undefined" ? window.location.href : undefined} />}
-                  </details>
                 </div>
                 {article.adUrl && <SidebarAdSlot lang={lang} slotId="article-afterword" adUrl={article.adUrl} />}
               </footer>
@@ -687,7 +610,7 @@ export function ArticlePage({
         </div>
 
         {/* Restrained reading progress below the site navigation. */}
-        <ReadingProgressMarker targetRef={articleBodyRef} lang={lang} />
+        <ReadingProgressMarker progress={progress} lang={lang} compact />
       </div>
     </div>
   );
@@ -771,7 +694,7 @@ function SidebarPinterestWidget({
   )}&media=${encodeURIComponent(imageUrl)}&description=${encodeURIComponent(description)}`;
 
   return (
-    <div className="border border-[#D8D2C6] rounded-sm overflow-hidden bg-white/60 group relative">
+    <div className="journal-pinterest-widget border border-[#D8D2C6] rounded-sm overflow-hidden bg-white/60 group relative">
       {!hasError ? (
         <a
           href={pinterestHref}
@@ -1238,38 +1161,25 @@ export default function ArticlesView({ lang, onBackToHome, onPlayChime, initialA
 
   const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null);
 
-  // Setup scrollspy active heading highlighter using IntersectionObserver
+  const { scrollY: articleScrollY } = useScroll();
+  // Recompute after jumps as well as incremental scrolling; update React only on section changes.
   useEffect(() => {
     if (!activeArticleSlug) return;
-    
+    let frame = 0;
     setActiveHeadingId(null);
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visibleEntries = entries.filter((entry) => entry.isIntersecting);
-        if (visibleEntries.length > 0) {
-          const closest = visibleEntries.reduce((prev, curr) => {
-            return Math.abs(curr.boundingClientRect.top) < Math.abs(prev.boundingClientRect.top) ? curr : prev;
-          });
-          setActiveHeadingId(closest.target.id);
-        }
-      },
-      {
-        rootMargin: "-80px 0px -60% 0px",
-        threshold: 0
-      }
-    );
-
-    const timer = setTimeout(() => {
-      const headingElements = document.querySelectorAll('#article-reader-view .prose-immersation [id]');
-      headingElements.forEach((el) => observer.observe(el));
-    }, 400);
-
-    return () => {
-      clearTimeout(timer);
-      observer.disconnect();
+    const measure = () => {
+      frame = 0;
+      const headings = Array.from(document.querySelectorAll<HTMLElement>('#article-reader-view .prose-immersation [id]'));
+      let next: string | null = null;
+      for (const heading of headings) { if (heading.getBoundingClientRect().top <= 160) next = heading.id; else break; }
+      setActiveHeadingId(previous => previous === next ? previous : next);
     };
-  }, [activeArticleSlug, lang, articles]);
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
+    const unsubscribe = articleScrollY.on('change', schedule);
+    const timer = window.setTimeout(schedule, 400);
+    window.addEventListener('resize', schedule, { passive: true });
+    return () => { unsubscribe(); clearTimeout(timer); cancelAnimationFrame(frame); window.removeEventListener('resize', schedule); };
+  }, [activeArticleSlug, lang, articles, articleScrollY]);
 
   // Scroll reveal observer
   useEffect(() => {
