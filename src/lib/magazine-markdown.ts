@@ -66,14 +66,7 @@ export default function remarkMagazine(options: Options = {}) {
       'The chore stays the same. Your attention changes.', '家务没有改变，改变的是你参与生活的方式。',
     ].includes(plain(n)));
     if (quote !== -1) nodes[quote] = container('quote', [nodes[quote]]);
-    const start = nodes.findIndex(n => n.type === 'heading' && n.depth === 2 && [
-      'The strange luxury of having only one thing to do', '最难得的奢侈，或许是一次只做一件事',
-    ].includes(plain(n)));
-    if (start !== -1) {
-      let end = start + 1;
-      while (end < nodes.length && !(nodes[end].type === 'heading' && nodes[end].depth === 2)) end++;
-      nodes.splice(start, end - start, container('background', nodes.slice(start, end), { src: options.cover || '' }));
-    }
+
   };
 }
 
