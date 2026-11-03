@@ -4,9 +4,11 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { cartIdentifiers, deploymentIsLive, guestHash, paymentConfig, pricedProduct, PublicError, unavailable, validateSession } from './security.js';
 import { mountPublishing } from './publishing.js';
+import { mountEditorialAgent } from './editorial-agent.js';
+import { createWordPressAdapter, MediaError } from './wordpress-media.js';
 import { defaultBookContent } from './book-content.js';
 
-type Dependencies = { env?: NodeJS.ProcessEnv; db?: SupabaseClient; stripe?: Stripe };
+type Dependencies = { env?: NodeJS.ProcessEnv; db?: SupabaseClient; stripe?: Stripe; mediaFetch?: typeof fetch };
 export function createApp(deps: Dependencies = {}) {
   const env = deps.env || process.env;
   const live = deploymentIsLive(env);
@@ -93,6 +95,7 @@ export function createApp(deps: Dependencies = {}) {
     }
     res.json({ received: true });
   }));
+  mountEditorialAgent(app, db, env, deps.mediaFetch);
   app.use(express.json({ limit: '8mb' }));
   app.get('/api/health', (_req,res) => res.json({ status: 'ok' }));
   app.get('/api/admin/payment-health', requireAdmin, route(async (_req,res) => {
@@ -110,6 +113,21 @@ export function createApp(deps: Dependencies = {}) {
     if (!env.SENDFOX_API_KEY) return res.json({ configured: false, connected: false });
     const response = await fetch('https://api.sendfox.com/lists', { headers: { Authorization: `Bearer ${env.SENDFOX_API_KEY}` }, signal: AbortSignal.timeout(10000) });
     res.json({ configured: true, connected: response.ok });
+  }));
+  app.post('/api/admin/mira/media/reconcile', route(async (req,res) => {
+    const actor = await admin(req);
+    const key = req.body?.requestKey, id = req.body?.mediaId;
+    if (typeof key !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(key) || !Number.isSafeInteger(id) || id < 1) throw new PublicError(400,'INVALID_REQUEST','Invalid reconciliation request.');
+    const row: any = checked(await database().from('mira_media_uploads').select('request_key,role,operation_id,sha256,state,result').eq('request_key',key).maybeSingle());
+    if (!row) throw new PublicError(404,'NOT_FOUND','Upload operation not found.');
+    if (row.state === 'completed' && row.result?.id === id) return res.json({ status:'completed', asset:row.result });
+    if (!['reserved','uncertain'].includes(row.state)) throw new PublicError(409,'RECONCILIATION_CONFLICT','Upload is not awaiting reconciliation.');
+    let asset;
+    try { asset = await createWordPressAdapter(env, deps.mediaFetch).verifyCandidate(id,row.role,row.operation_id,row.sha256); }
+    catch (err) { throw new PublicError(err instanceof MediaError && err.code === 'CANDIDATE_MISMATCH' ? 409 : 503, err instanceof MediaError ? err.code : 'WORDPRESS_UNAVAILABLE','Media could not be verified. Operator investigation is required.'); }
+    const result = await database().rpc('mira_media_reconcile',{ p_key:key,p_result:asset,p_actor:actor!.id });
+    if (result.error || !result.data) throw new PublicError(409,'RECONCILIATION_CONFLICT','Media could not be attached. Refresh the submission.');
+    return res.json({status:'completed',asset:result.data});
   }));
   app.get('/api/admin/me', requireAdmin, (_req,res) => res.json({ admin: true }));
   app.get('/api/admin/orders', requireAdmin, route(async (_req,res) => {

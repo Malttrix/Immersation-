@@ -251,9 +251,47 @@ export interface ArticleRepository {
   saveDestination?: "remote" | "browser-review";
   list(): Promise<StudioArticle[]>;
   save(article: StudioArticle, revision: number): Promise<StudioArticle>;
+  review?(id: string, revision: number, action: string): Promise<any>;
+  reviewDetails?(id: string): Promise<any>;
+  updateEditorial?(id: string, revision: number, patch: any): Promise<StudioArticle>;
+  mediaOperations?(id: string): Promise<any[]>;
+  reconcileMedia?(key: string, mediaId: number): Promise<void>;
+  publishReviewed?(id: string, revision: number): Promise<StudioArticle>;
 }
 export function supabaseArticleRepository(client: any): ArticleRepository {
   return {
+    async updateEditorial(id, revision, patch) {
+      const {data, error} = await client.rpc("mira_update_editorial", {p_article:id,p_revision:revision,p_patch:patch});
+      if (error || !data) throw Error(error?.message || "Save failed.");
+      return hydrateArticle(data);
+    },
+    async mediaOperations(id) {
+      const {data,error} = await client.rpc("mira_media_operations",{p_article:id});
+      if (error) throw Error(error.message);
+      return data || [];
+    },
+    async reconcileMedia(key, mediaId) {
+      const {data} = await client.auth.getSession();
+      const token=data.session?.access_token;
+      if (!token) throw Error("Sign in as an administrator.");
+      const response=await fetch("/api/admin/mira/media/reconcile", {method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${token}`},body:JSON.stringify({requestKey:key,mediaId})});
+      if (!response.ok) throw Error("Verification failed. Inspect WordPress and try again only with a verified media ID.");
+    },
+    async reviewDetails(id) {
+      const {data, error} = await client.rpc("mira_review_details", {p_article: id});
+      if (error) throw Error(error.message);
+      return data;
+    },
+    async review(id, revision, action) {
+      const { data, error } = await client.rpc("mira_review", { p_article: id, p_revision: revision, p_action: action });
+      if (error) throw Error(error.message);
+      return data;
+    },
+    async publishReviewed(id, revision) {
+      const { data, error } = await client.rpc("mira_publish", { p_article: id, p_revision: revision });
+      if (error || !data) throw Error(error?.message || "Publication not confirmed.");
+      return hydrateArticle(data);
+    },
     async list() {
       if (!client)
         throw Error("Supabase is not configured. No remote save is available.");

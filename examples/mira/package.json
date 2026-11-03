@@ -1,0 +1,91 @@
+{
+  "article": {
+    "submissionId": "sample-001",
+    "slug": "sample-editorial-draft",
+    "pillar": "body",
+    "category": {
+      "en": "Practice",
+      "zh": "实践"
+    },
+    "title": {
+      "en": "Sample draft",
+      "zh": "示例草稿"
+    },
+    "excerpt": {
+      "en": "An example package for local validation.",
+      "zh": "用于本地验证的示例投稿。"
+    },
+    "content": {
+      "en": "## A section\n\nReplace this example with reviewed content.",
+      "zh": "## 一个章节\n\n请将此示例替换为经过审核的内容。"
+    },
+    "references": [],
+    "tags": [
+      "practice"
+    ],
+    "seo": {
+      "titleEN": "Example search title",
+      "descEN": "Example search description."
+    },
+    "internalLinks": [
+      "sample-related-article"
+    ],
+    "editorialNotes": "Editorial placeholder; verify before publication.",
+    "qa": {
+      "factual": "Pending founder review",
+      "citations": "Check sources",
+      "warnings": [
+        "Demonstration content only"
+      ]
+    },
+    "alt": {
+      "cover": {
+        "en": "Example landscape",
+        "zh": "示例横幅"
+      },
+      "pinterest1": {
+        "en": "Example infographic one",
+        "zh": "示例信息图一"
+      },
+      "pinterest2": {
+        "en": "Example infographic two",
+        "zh": "示例信息图二"
+      }
+    },
+    "social": {
+      "pinterest": [
+        {
+          "role": "pinterest1",
+          "title": "Example pin one",
+          "description": "Example description",
+          "keywords": [
+            "practice"
+          ]
+        },
+        {
+          "role": "pinterest2",
+          "title": "Example pin two",
+          "description": "Example description",
+          "keywords": [
+            "practice"
+          ]
+        }
+      ],
+      "instagram": {
+        "roles": [
+          "instagram1"
+        ],
+        "caption": "Example caption",
+        "hashtags": [
+          "example"
+        ]
+      }
+    }
+  },
+  "media": {
+    "cover": "media/cover.jpg",
+    "pinterest1": "media/pinterest1.jpg",
+    "pinterest2": "media/pinterest2.jpg",
+    "instagram1": "media/instagram1.jpg"
+  }
+}

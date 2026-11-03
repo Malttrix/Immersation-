@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""Hermes-compatible draft-only client. Never accepts admin credentials."""
+import argparse, hashlib, json, os, secrets, stat, sys, tempfile
+from pathlib import Path
+from urllib import request, error, parse
+
+CURRENT_SUBMISSION = None
+ROLES = {'cover','background','pinterest1','pinterest2'} | {f'instagram{i}' for i in range(1,10)}
+class ClientError(Exception):
+    def __init__(self, stage, code, uncertain=False, correlation=None):
+        self.stage, self.code, self.uncertain, self.correlation = stage, code, uncertain, correlation
+
+def config():
+    base=os.environ.get('IMMERSATION_API_BASE','https://immersation.com').rstrip('/')
+    url=parse.urlsplit(base)
+    if url.username or url.password or url.query or url.fragment or url.path not in ('','/') or not (url.scheme=='https' or (url.scheme=='http' and url.hostname in ('localhost','127.0.0.1','::1'))):
+        raise ClientError('configuration','INVALID_API_ORIGIN')
+    token=os.environ.get('MIRA_AGENT_TOKEN','')
+    if len(token)<43 or not all(c.isalnum() or c in '_-' for c in token): raise ClientError('configuration','MISSING_AGENT_TOKEN')
+    return base, token
+
+def api(stage, path, method='GET', body=None, headers=None):
+    base, token=config()
+    req=request.Request(base+'/api/editorial/agent'+path,data=body,method=method,headers={'Authorization':'Bearer '+token,**(headers or {})})
+    try:
+        with request.urlopen(req,timeout=45) as res: return json.load(res)
+    except error.HTTPError as exc:
+        try: data=json.loads(exc.read(32768))
+        except Exception: data={}
+        code=data.get('code','HTTP_ERROR')
+        raise ClientError(stage,code, stage.startswith('upload:') and (data.get('retrySafe') is False or exc.code>=500), exc.headers.get('X-Correlation-Id')) from None
+    except Exception: raise ClientError(stage,'NETWORK_ERROR',stage.startswith('upload:')) from None
+
+def read_state(path):
+    if not path.exists(): return {'version':1,'keys':{}}
+    if path.is_symlink() or not stat.S_ISREG(path.stat().st_mode): raise ClientError('state','INVALID_STATE_FILE')
+    return json.loads(path.read_text())
+
+def save_state(path,state):
+    fd,name=tempfile.mkstemp(prefix='.mira-state-',dir=path.parent)
+    try:
+        with os.fdopen(fd,'w') as handle: json.dump(state,handle,sort_keys=True); handle.flush(); os.fsync(handle.fileno())
+        os.replace(name,path); os.chmod(path,0o600)
+    finally:
+        if os.path.exists(name): os.unlink(name)
+
+def key_for(state,path,stage,digest):
+    existing=state['keys'].get(stage)
+    if existing and existing.get('uncertain'): raise ClientError(stage,'RECONCILIATION_REQUIRED',True)
+    if existing and existing['digest']==digest: return existing['key']
+    key=secrets.token_urlsafe(32)
+    state['keys'][stage]={'digest':digest,'key':key}
+    save_state(path,state)
+    return key
+
+def submit(directory, resume_reconciled=False):
+    global CURRENT_SUBMISSION
+    root=Path(directory).resolve(); manifest=json.loads((root/'package.json').read_text())
+    payload=manifest['article']; media=manifest['media']; submission=payload['submissionId']; CURRENT_SUBMISSION=submission
+    if not {'cover','pinterest1','pinterest2'} <= set(media) or not set(media)<=ROLES: raise ClientError('validation','INVALID_MEDIA_ROLES')
+    body=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
+    state_path=root/'.mira-state.json'; state=read_state(state_path)
+    key=key_for(state,state_path,'draft',hashlib.sha256(body).hexdigest())
+    result=api('draft','/drafts','POST',body,{'Content-Type':'application/json','Idempotency-Key':key})
+    for role, relative in media.items():
+        path=(root/relative).resolve()
+        if root not in path.parents or not path.is_file(): raise ClientError('validation','INVALID_MEDIA_PATH')
+        content=path.read_bytes()
+        if not 0<len(content)<=3*1024*1024: raise ClientError('validation','INVALID_MEDIA_SIZE')
+        stage='upload:'+role
+        existing=state['keys'].get(stage)
+        digest=hashlib.sha256(content).hexdigest()
+        if existing and existing.get('uncertain') and resume_reconciled and existing['digest']==digest:
+            existing.pop('uncertain'); save_state(state_path,state)
+        key=key_for(state,state_path,stage,digest)
+        # Persist uncertainty *before* the network call so process termination is safe.
+        state['keys'][stage]['uncertain']=True; save_state(state_path,state)
+        try:
+            api(stage,'/drafts/'+parse.quote(submission,safe='')+'/assets/'+role,'POST',content,{'Content-Type':'application/octet-stream','Idempotency-Key':key,'X-Original-Filename':path.name.encode('ascii','replace').decode()})
+        except ClientError as exc:
+            if not exc.uncertain: state['keys'][stage].pop('uncertain',None); save_state(state_path,state)
+            raise
+        state['keys'][stage].pop('uncertain',None); save_state(state_path,state)
+    result=api('finalize','/drafts/'+parse.quote(submission,safe='')+'/finalize','POST')
+    if result.get('status')!='pending_review': raise ClientError('finalize','UNCONFIRMED_STATUS')
+    print('MIRA — Editorial Submission Complete')
+    print('Article:',payload['title']['en']); print('Pillar:',payload['pillar'])
+    print('English: Ready | Chinese: Ready | Cover: Uploaded | Pinterest: Uploaded')
+    print('Status: Pending Review'); print('Admin review:',result.get('reviewUrl',''))
+    print('Founder action: Review & Approve')
+
+def main():
+    parser=argparse.ArgumentParser(prog='immersation'); sub=parser.add_subparsers(dest='command',required=True)
+    p=sub.add_parser('submit');p.add_argument('--package',required=True);p.add_argument('--resume-reconciled',action='store_true')
+    p=sub.add_parser('status');p.add_argument('--id',required=True)
+    args=parser.parse_args()
+    try:
+        if args.command=='submit': submit(args.package,args.resume_reconciled)
+        else:
+            data=api('status','/drafts/'+parse.quote(args.id,safe=''))
+            print(json.dumps({k:data.get(k) for k in ('submissionId','status','revision','reviewUrl')},ensure_ascii=False))
+    except ClientError as exc:
+        print(json.dumps({'submissionId':CURRENT_SUBMISSION,'correlationId':exc.correlation,'stage':exc.stage,'code':exc.code,'retrySafe':not exc.uncertain,'action':'Operator reconciliation required' if exc.uncertain else 'Check configuration or validation'},ensure_ascii=False),file=sys.stderr);return 1
+    except (OSError,ValueError,KeyError,TypeError):
+        print(json.dumps({'stage':'package','code':'INVALID_LOCAL_PACKAGE','retrySafe':False}),file=sys.stderr);return 1
+    return 0
+if __name__=='__main__': sys.exit(main())
