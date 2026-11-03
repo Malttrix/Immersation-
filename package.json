@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build --configLoader runner && esbuild server.ts --tsconfig=tsconfig.server.json --bundle --platform=node --format=cjs --packages=external --outfile=build/server.cjs",
+    "build": "node scripts/mira-preview-guard.mjs && vite build --configLoader runner && esbuild server.ts --tsconfig=tsconfig.server.json --bundle --platform=node --format=cjs --packages=external --outfile=build/server.cjs",
     "start": "node build/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",

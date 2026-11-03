@@ -136,7 +136,7 @@ test('cart rejects malformed, duplicate, free-priced and manipulated items', () 
   assert.throws(()=>pricedProduct({ active:true,currency:'usd',price:0 }));
 });
 test('unauthenticated admin mutations and diagnostics are rejected',async()=> {
-  for (const [method,path] of [['POST','/api/sync-articles'],['POST','/api/broadcast-sendfox'],['POST','/api/convert-epub'],['POST','/api/admin/set-stripe-keys'],['GET','/api/admin/orders'],['GET','/api/admin/payment-health']]) assert.equal((await request(path,{method,headers:{'content-type':'application/json'},...(method==='POST'?{body:'{}'}:{})})).status,401);
+  for (const [method,path] of [['POST','/api/admin/mira/media/confirm-absent'],['POST','/api/admin/mira/media/reconcile'],['POST','/api/sync-articles'],['POST','/api/broadcast-sendfox'],['POST','/api/convert-epub'],['POST','/api/admin/set-stripe-keys'],['GET','/api/admin/orders'],['GET','/api/admin/payment-health']]) assert.equal((await request(path,{method,headers:{'content-type':'application/json'},...(method==='POST'?{body:'{}'}:{})})).status,401);
   assert.deepEqual((await request('/api/health')).body,{status:'ok'});
 });
 test('verified normal user cannot administer; database allowlisted user can',async()=> {

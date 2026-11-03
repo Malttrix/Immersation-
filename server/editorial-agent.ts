@@ -54,6 +54,15 @@ export function mountEditorialAgent(app: Express, db: SupabaseClient | null, env
       return res.status(201).json({ asset: completed.data, replayed: false });
     } catch { return res.status(503).json({ code: 'MEDIA_RECONCILIATION_REQUIRED', retrySafe: false }); }
   });
+  app.get(`${root}/drafts/:id/assets/:role/status`, async (req,res) => {
+    const key=req.get('idempotency-key') || '';
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(req.params.id) || !/^(cover|background|pinterest[12]|instagram[1-9])$/.test(req.params.role) || !/^[A-Za-z0-9_-]{16,128}$/.test(key)) return res.status(400).json({code:'INVALID_REQUEST'});
+    try { const result=await db!.rpc('mira_media_status',{p_id:req.params.id,p_role:req.params.role,p_key:key});
+      if (result.error) return res.status(503).json({code:'UNAVAILABLE'});
+      if (!result.data) return res.status(404).json({code:'NOT_FOUND'});
+      return res.json(result.data);
+    } catch { return res.status(503).json({code:'UNAVAILABLE'}); }
+  });
   app.post(`${root}/drafts`, async (req, res) => {
     if (!req.is('application/json')) return res.status(415).json({ code: 'CONTENT_TYPE' });
     const key = req.get('idempotency-key') || '';

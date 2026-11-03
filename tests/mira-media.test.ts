@@ -41,3 +41,12 @@ test('reconciliation verifies operation identifier and exact remote bytes', asyn
   await assert.rejects(adapter.verifyCandidate(9,'cover',op,'c'.repeat(64)),/CANDIDATE_MISMATCH/);
   await assert.rejects(adapter.verifyCandidate(10,'cover',op,image.sha256),/CANDIDATE_MISMATCH/);
 });
+test('provider absence check fails closed for matches, incomplete results and unavailable search', async () => {
+  const op='a'.repeat(32);
+  const empty: typeof fetch=async () => new Response('[]',{status:200,headers:{'x-wp-total':'0'}});
+  await createWordPressAdapter(env,empty).checkNoCandidates(op);
+  const matches: typeof fetch=async () => new Response('[{"id":1},{"id":2}]',{status:200,headers:{'x-wp-total':'2'}});
+  await assert.rejects(createWordPressAdapter(env,matches).checkNoCandidates(op),/CANDIDATES_EXIST/);
+  await assert.rejects(createWordPressAdapter(env,async()=>new Response('[]')).checkNoCandidates(op),/WORDPRESS_UNAVAILABLE/);
+  await assert.rejects(createWordPressAdapter(env,async()=>{throw Error('network')}).checkNoCandidates(op),/WORDPRESS_UNAVAILABLE/);
+});

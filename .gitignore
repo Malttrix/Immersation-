@@ -9,3 +9,8 @@ coverage/
 .stripe_config.json
 *.pem
 *.key
+# Local MIRA retry state and Python runtime artifacts
+.mira-state.json
+.mira-state-*
+__pycache__/
+*.pyc

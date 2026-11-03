@@ -256,6 +256,7 @@ export interface ArticleRepository {
   updateEditorial?(id: string, revision: number, patch: any): Promise<StudioArticle>;
   mediaOperations?(id: string): Promise<any[]>;
   reconcileMedia?(key: string, mediaId: number): Promise<void>;
+  confirmMediaAbsent?(key: string, evidence: string): Promise<void>;
   publishReviewed?(id: string, revision: number): Promise<StudioArticle>;
 }
 export function supabaseArticleRepository(client: any): ArticleRepository {
@@ -269,6 +270,13 @@ export function supabaseArticleRepository(client: any): ArticleRepository {
       const {data,error} = await client.rpc("mira_media_operations",{p_article:id});
       if (error) throw Error(error.message);
       return data || [];
+    },
+    async confirmMediaAbsent(key, evidence) {
+      const {data} = await client.auth.getSession();
+      const token=data.session?.access_token;
+      if (!token) throw Error("Sign in as an administrator.");
+      const response=await fetch("/api/admin/mira/media/confirm-absent", {method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${token}`},body:JSON.stringify({requestKey:key,evidence,confirm:true})});
+      if (!response.ok) throw Error("Absence was not confirmed. Check candidates, evidence and the waiting period.");
     },
     async reconcileMedia(key, mediaId) {
       const {data} = await client.auth.getSession();

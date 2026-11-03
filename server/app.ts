@@ -129,6 +129,20 @@ export function createApp(deps: Dependencies = {}) {
     if (result.error || !result.data) throw new PublicError(409,'RECONCILIATION_CONFLICT','Media could not be attached. Refresh the submission.');
     return res.json({status:'completed',asset:result.data});
   }));
+  app.post('/api/admin/mira/media/confirm-absent', route(async (req,res) => {
+    const actor = await admin(req);
+    const key = req.body?.requestKey, evidence = req.body?.evidence;
+    if (typeof key !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(key) || req.body?.confirm !== true || typeof evidence !== 'string' || evidence.trim().length < 40 || evidence.length > 2000) throw new PublicError(400,'INVALID_REQUEST','A clear operator decision and detailed evidence are required.');
+    const row: any = checked(await database().from('mira_media_uploads').select('request_key,operation_id,state').eq('request_key',key).maybeSingle());
+    if (!row) throw new PublicError(404,'NOT_FOUND','Upload operation not found.');
+    if (row.state === 'failed') return res.json({ status:'failed' });
+    if (!['reserved','uncertain'].includes(row.state)) throw new PublicError(409,'RECONCILIATION_CONFLICT','Upload is not awaiting investigation.');
+    try { await createWordPressAdapter(env,deps.mediaFetch).checkNoCandidates(row.operation_id); }
+    catch (err) { throw new PublicError(err instanceof MediaError && err.code === 'CANDIDATES_EXIST' ? 409 : 503, err instanceof MediaError ? err.code : 'WORDPRESS_UNAVAILABLE','Could not verify an empty provider search. Continue operator investigation.'); }
+    const result=await database().rpc('mira_media_mark_absent',{p_key:key,p_actor:actor!.id,p_evidence:evidence.trim()});
+    if (result.error || !result.data) throw new PublicError(409,'ABSENCE_NOT_CONFIRMED','Operation is not eligible; wait at least 10 minutes and refresh.');
+    return res.json({status:'failed'});
+  }));
   app.get('/api/admin/me', requireAdmin, (_req,res) => res.json({ admin: true }));
   app.get('/api/admin/orders', requireAdmin, route(async (_req,res) => {
     const orders = checked(await database().from('commerce_orders').select('id,customer_email,amount,currency,status,paid_at,refunded_amount,created_at,commerce_order_items(product_id,title,unit_amount,quantity)').eq('livemode',live).order('created_at', { ascending: false }).limit(200));

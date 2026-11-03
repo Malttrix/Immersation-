@@ -138,7 +138,7 @@ test('uncertain upload needs an administrator and a verified candidate; repeated
     create function is_security_admin() returns boolean language sql stable as $$select exists(select 1 from security_admins where user_id=auth.uid())$$;
     create table articles(id text primary key,slug text,title jsonb,excerpt jsonb,content jsonb,category jsonb,date jsonb,"readTime" jsonb,pillar text,featured boolean default false,cover text,audio text,created_at timestamptz default now());
     alter table articles enable row level security; grant select on articles to anon,authenticated;`);
-    for (const file of ['202610310001_content_studio.sql','202611030001_mira_editorial.sql','202611040001_mira_media.sql']) await pg.exec(readFileSync('supabase/migrations/'+file,'utf8'));
+    for (const file of ['202610310001_content_studio.sql','202611030001_mira_editorial.sql','202611040001_mira_media.sql','202611050001_mira_absence.sql']) await pg.exec(readFileSync('supabase/migrations/'+file,'utf8'));
     await pg.query('select mira_submit($1,$2,$3,$4::jsonb)',[pkg.submissionId,key,fp,JSON.stringify(pkg)]);
     const assetKey='uncertain_media_key_123456';
     await pg.query('select mira_media_start($1,$2,$3,$4,$5)',[pkg.submissionId,assetKey,'cover',fp,'cover.jpg']);
@@ -151,5 +151,19 @@ test('uncertain upload needs an administrator and a verified candidate; repeated
     await pg.query('select mira_media_reconcile($1,$2::jsonb,$3)',[assetKey,JSON.stringify(asset),'11111111-1111-4111-8111-111111111111']);
     await assert.rejects(pg.query('select mira_media_reconcile($1,$2::jsonb,$3)',[assetKey,JSON.stringify({...asset,id:43}),'11111111-1111-4111-8111-111111111111']),/Candidate mismatch/);
     assert.equal((await pg.query<any>("select count(*)::integer as n from mira_audit where action='media_reconciled'")).rows[0].n,1);
+    const absentKey='uncertain_background_123456';
+    await pg.query('select mira_media_start($1,$2,$3,$4,$5)',[pkg.submissionId,absentKey,'background',fp,'background.jpg']);
+    await pg.query('select mira_media_uncertain($1)',[absentKey]);
+    const evidence='Reviewed the complete WordPress library, other uploaders and trash; operation was not found.';
+    await assert.rejects(pg.query('select mira_media_mark_absent($1,$2,$3)',[absentKey,'22222222-2222-4222-8222-222222222222',evidence]),/Administrator required/);
+    await assert.rejects(pg.query('select mira_media_mark_absent($1,$2,$3)',[absentKey,'11111111-1111-4111-8111-111111111111',evidence]),/cooling-off/);
+    await pg.query("update mira_media_uploads set created_at=now()-interval '11 minutes' where request_key=$1",[absentKey]);
+    await assert.rejects(pg.query('select mira_media_mark_absent($1,$2,$3)',[absentKey,'11111111-1111-4111-8111-111111111111','short']),/evidence/);
+    await pg.query('select mira_media_mark_absent($1,$2,$3)',[absentKey,'11111111-1111-4111-8111-111111111111',evidence]);
+    assert.equal((await pg.query<any>('select mira_media_status($1,$2,$3) as result',[pkg.submissionId,'background',absentKey])).rows[0].result.state,'failed');
+    await assert.rejects(pg.query('select mira_media_complete($1,$2::jsonb)',[absentKey,JSON.stringify(asset)]),/no longer active/);
+    await pg.query('select mira_media_start($1,$2,$3,$4)',[pkg.submissionId,'new_background_key_123456','background',fp]);
+    assert.equal((await pg.query<any>('select count(*)::integer as n from mira_media_absence_decisions')).rows[0].n,1);
+
   } finally { await pg.close(); }
 });

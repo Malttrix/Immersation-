@@ -49,6 +49,21 @@ export function createWordPressAdapter(env: NodeJS.ProcessEnv, transport: typeof
       if (!Number.isSafeInteger(body.id) || body.id < 1 || url.protocol !== 'https:' || url.origin !== base.origin || url.username || url.password || body.mime_type !== image.mime || body.media_details?.width !== image.width || body.media_details?.height !== image.height) throw new MediaError('WORDPRESS_RESULT_UNKNOWN', true);
       return { id: body.id, url: url.href, mime: body.mime_type, width: image.width, height: image.height };
     },
+    async checkNoCandidates(operationId: string): Promise<void> {
+      if (!/^[a-f0-9]{32}$/.test(operationId)) throw new MediaError('INVALID_OPERATION');
+      const query = new URL('/wp-json/wp/v2/media', base);
+      query.searchParams.set('search',operationId); query.searchParams.set('per_page','100'); query.searchParams.set('context','edit');
+      let response: Response;
+      try { response = await transport(query,{headers:{authorization},redirect:'error',signal:AbortSignal.timeout(10000)}); }
+      catch { throw new MediaError('WORDPRESS_UNAVAILABLE'); }
+      if (!response.ok) throw new MediaError('WORDPRESS_UNAVAILABLE');
+      const total = response.headers.get('x-wp-total');
+      let items: unknown; try { items=await response.json(); } catch { throw new MediaError('WORDPRESS_UNAVAILABLE'); }
+      if (total === null || !/^\d+$/.test(total) || !Array.isArray(items)) throw new MediaError('WORDPRESS_UNAVAILABLE');
+      if (Number(total)!==0 || items.length!==0) throw new MediaError('CANDIDATES_EXIST');
+      // A search alone cannot prove absence: an administrator must independently
+      // audit the complete media library and record their evidence and decision.
+    },
     async verifyCandidate(id: number, role: string, operationId: string, expectedHash: string): Promise<WordPressMedia> {
       if (!Number.isSafeInteger(id) || id < 1 || !/^[a-f0-9]{32}$/.test(operationId) || !/^[a-f0-9]{64}$/.test(expectedHash)) throw new MediaError('CANDIDATE_MISMATCH');
       let response: Response;
