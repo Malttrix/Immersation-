@@ -573,6 +573,7 @@ export default function App() {
   // Google Auth & Admin States
   const [showGoogleModal, setShowGoogleModal] = useState(false);
   const [googleEmailInput, setGoogleEmailInput] = useState("");
+  const [signInPassword, setSignInPassword] = useState("");
   const [googleAuthError, setGoogleAuthError] = useState("");
   const [adminTab, setAdminTab] = useState<"overview" | "members" | "books" | "transactions" | "library">("overview");
 
@@ -4125,6 +4126,7 @@ export default function App() {
           <AdminDashboard
             lang={lang}
             userEmail={userEmail}
+            isAuthorized={isAdmin}
             systemMembers={systemMembers}
             setSystemMembers={setSystemMembers}
             systemTransactions={systemTransactions}
@@ -4148,8 +4150,8 @@ export default function App() {
             </h1>
             <p className="text-sm text-stone-600 max-w-md mb-6">
               {lang === "en" 
-                ? "This console is reserved exclusively for the System Administrator (dreammyhomee@gmail.com). Please sign in using the administrator credentials."
-                : "此决策控制台仅限系统超级管理员 (dreammyhomee@gmail.com) 访问。请使用管理员账户进行身份验证。"}
+                ? "This console is reserved for administrators. Please sign in with an authorized account."
+                : "此控制台仅供管理员访问。请使用已授权的账号登录。"}
             </p>
             <button
               onClick={() => {
@@ -4291,6 +4293,7 @@ export default function App() {
               onClick={() => {
                 setShowGoogleModal(false);
                 setGoogleAuthError("");
+                setSignInPassword("");
               }}
               className="absolute top-4 right-4 text-stone-400 hover:text-stone-600 p-1.5 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
             >
@@ -4306,7 +4309,7 @@ export default function App() {
                 <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335" />
               </svg>
               <h3 className="text-xl font-normal text-stone-800 tracking-tight">
-                {lang === "en" ? "Sign in with Google" : "使用 Google 账号登录"}
+                {lang === "en" ? "Sign in to Immersation" : "登录 Immersation"}
               </h3>
               <p className="text-xs text-stone-500 mt-1.5">
                 {lang === "en" ? "to continue to Immersation" : "继续前往 Immersation（智枢阁）"}
@@ -4321,6 +4324,33 @@ export default function App() {
                   {googleAuthError}
                 </div>
               )}
+
+              <form onSubmit={async (event) => {
+                event.preventDefault();
+                if (!supabase || isSigningIn) return;
+                setIsSigningIn(true);
+                setGoogleAuthError("");
+                try {
+                  const { error } = await supabase.auth.signInWithPassword({ email: googleEmailInput.trim(), password: signInPassword });
+                  if (error) {
+                    setGoogleAuthError(lang === "en" ? "Unable to sign in. Check your email and password." : "无法登录，请检查邮箱和密码。");
+                  } else {
+                    setSignInPassword("");
+                    setShowGoogleModal(false);
+                  }
+                } catch {
+                  setGoogleAuthError(lang === "en" ? "Unable to sign in. Please try again." : "无法登录，请重试。");
+                } finally {
+                  setIsSigningIn(false);
+                }
+              }} className="space-y-3">
+                <label className="block text-xs text-stone-600" htmlFor="auth-email">{lang === "en" ? "Email" : "邮箱"}</label>
+                <input id="auth-email" type="email" autoComplete="email" required value={googleEmailInput} onChange={e => setGoogleEmailInput(e.target.value)} className="w-full border p-3" />
+                <label className="block text-xs text-stone-600" htmlFor="auth-password">{lang === "en" ? "Password" : "密码"}</label>
+                <input id="auth-password" type="password" autoComplete="current-password" required value={signInPassword} onChange={e => setSignInPassword(e.target.value)} className="w-full border p-3" />
+                <button type="submit" disabled={!supabase || isSigningIn} className="w-full bg-[#1A2F24] text-white p-3 disabled:opacity-50">{lang === "en" ? "Sign in with email" : "使用邮箱登录"}</button>
+              </form>
+              <div className="text-center text-xs text-stone-500">{lang === "en" ? "Other sign-in options" : "其他登录方式"}</div>
 
               {/* Supabase OAuth Integration */}
               {isSupabaseConfigured ? (
@@ -4382,7 +4412,6 @@ export default function App() {
                   <span className="text-[#1a73e8]">{lang === "en" ? "Continue with Google (Real Auth)" : "通过 Google 账号登录 (真实认证)"}</span>
                 </button>
               ) : <p>Secure sign-in is temporarily unavailable.</p>}
-              <input type="email" value={googleEmailInput} onChange={e => setGoogleEmailInput(e.target.value)} placeholder="Email for a secure sign-in link" className="w-full border p-3" />
               <button disabled={!supabase || isSigningIn} onClick={async () => {
                 if (!supabase) return;
                 setIsSigningIn(true);

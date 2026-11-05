@@ -75,6 +75,7 @@ function Review() {
           articleRepository={repository}
           lang="en"
           userEmail="dreammyhomee@gmail.com"
+          isAuthorized={true}
           articles={articles}
           setArticles={setArticles}
           books={[]}

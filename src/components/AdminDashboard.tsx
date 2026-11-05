@@ -60,6 +60,7 @@ interface AdminDashboardProps {
   articleRepository?: ArticleRepository;
   lang: "en" | "zh";
   userEmail: string | null;
+  isAuthorized: boolean;
   systemMembers: Array<{ email: string; role: string; joined: string; status: string; regMethod?: string }>;
   setSystemMembers: React.Dispatch<React.SetStateAction<Array<{ email: string; role: string; joined: string; status: string; regMethod?: string }>>>;
   systemTransactions: Array<{ id: string; email: string; item: string; amount: number; date: string; status: string; currency?: string; refundedAmount?: number }>;
@@ -77,6 +78,7 @@ export default function AdminDashboard({
   articleRepository: suppliedArticleRepository,
   lang,
   userEmail,
+  isAuthorized,
   systemMembers,
   setSystemMembers,
   systemTransactions,
@@ -89,8 +91,8 @@ export default function AdminDashboard({
   setNewsletterIssues,
   onClose
 }: AdminDashboardProps) {
-  // If not admin, block entry
-  const isAdmin = userEmail === "dreammyhomee@gmail.com";
+  // The parent obtains administrator status from the server, not an email allowlist.
+  const isAdmin = isAuthorized;
   
   if (!isAdmin) {
     return (
