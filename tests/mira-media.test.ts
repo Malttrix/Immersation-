@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import { prepareImage, createWordPressAdapter, MAX_IMAGE_BYTES } from '../server/wordpress-media';
-const env = { WORDPRESS_MEDIA_BASE_URL:'https://cms.immersation.com', WORDPRESS_MEDIA_USERNAME:'test', WORDPRESS_MEDIA_APP_PASSWORD:'test-password' };
+const env = { WORDPRESS_MEDIA_BASE_URL:'https://staging-cms.immersation.com', WORDPRESS_MEDIA_USERNAME:'test', WORDPRESS_MEDIA_APP_PASSWORD:'test-password' };
 const raw = (width=900,height=600) => sharp({create:{width,height,channels:3,background:'red'}}).png().toBuffer();
 test('image pipeline decodes formats, size, dimensions and strips metadata', async () => {
   const valid=await prepareImage(await raw(),'cover');
@@ -17,9 +17,9 @@ test('WordPress adapter validates response and treats failure as uncertain', asy
   const image=await prepareImage(await raw(),'cover');
   let callCount=0;
   const fake: typeof fetch = async (url,opts) => {
-    callCount++; assert.equal(String(url),'https://cms.immersation.com/wp-json/wp/v2/media');
+    callCount++; assert.equal(String(url),'https://staging-cms.immersation.com/wp-json/wp/v2/media');
     assert.equal(opts?.redirect,'error'); assert.equal((opts?.headers as any)['content-type'],'image/png');
-    return new Response(JSON.stringify({id:42,source_url:'https://cms.immersation.com/wp-content/uploads/test.png',mime_type:'image/png',media_details:{width:900,height:600}}),{status:201});
+    return new Response(JSON.stringify({id:42,source_url:'https://staging-cms.immersation.com/wp-content/uploads/test.png',mime_type:'image/png',media_details:{width:900,height:600}}),{status:201});
   };
   assert.equal((await createWordPressAdapter(env,fake).upload(image,'cover')).id,42);
   assert.equal(callCount,1);
@@ -31,7 +31,7 @@ test('WordPress adapter validates response and treats failure as uncertain', asy
 test('reconciliation verifies operation identifier and exact remote bytes', async () => {
   const image=await prepareImage(await raw(),'cover'), op='a'.repeat(32), file=`mira-cover-${op}.png`;
   const fake: typeof fetch=async (url,opts) => {
-    if (String(url).includes('/wp-json/')) return new Response(JSON.stringify({id:9,source_url:`https://cms.immersation.com/uploads/${file}`,mime_type:'image/png',media_details:{width:image.width,height:image.height}}));
+    if (String(url).includes('/wp-json/')) return new Response(JSON.stringify({id:9,source_url:`https://staging-cms.immersation.com/uploads/${file}`,mime_type:'image/png',media_details:{width:image.width,height:image.height}}));
     assert.equal((opts?.headers as any)?.authorization,undefined);
     return new Response(new Uint8Array(image.bytes));
   };
@@ -49,4 +49,11 @@ test('provider absence check fails closed for matches, incomplete results and un
   await assert.rejects(createWordPressAdapter(env,matches).checkNoCandidates(op),/CANDIDATES_EXIST/);
   await assert.rejects(createWordPressAdapter(env,async()=>new Response('[]')).checkNoCandidates(op),/WORDPRESS_UNAVAILABLE/);
   await assert.rejects(createWordPressAdapter(env,async()=>{throw Error('network')}).checkNoCandidates(op),/WORDPRESS_UNAVAILABLE/);
+});
+test('only the approved staging WordPress origin is accepted by the adapter', () => {
+ for (const bad of ['https://cms.immersation.com','https://other.immersation.com','http://staging-cms.immersation.com','https://staging-cms.immersation.com:8443','https://staging-cms.immersation.com:443','https://user@staging-cms.immersation.com','https://staging-cms.immersation.com/path','https://staging-cms.immersation.com?x=1','https://staging-cms.immersation.com.evil.test']) {
+  assert.throws(()=>createWordPressAdapter({...env,WORDPRESS_MEDIA_BASE_URL:bad}),/WORDPRESS_NOT_CONFIGURED/);
+ }
+ assert.doesNotThrow(()=>createWordPressAdapter(env));
+ assert.doesNotThrow(()=>createWordPressAdapter({...env,WORDPRESS_MEDIA_BASE_URL:env.WORDPRESS_MEDIA_BASE_URL+'/'}));
 });

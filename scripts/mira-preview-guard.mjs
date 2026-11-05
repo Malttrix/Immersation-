@@ -1,3 +1,4 @@
+import { isWordPressStagingOrigin } from './wordpress-staging-origin.mjs';
 /** Fail closed on Vercel unless this is the explicitly identified staging project. */
 const LIVE_PROJECT_ID = 'prj_enkXTJiyVnkh7AeLYxYI1qXiJfQu';
 const FEATURE_BRANCH = 'feature/mira-editorial-integration';
@@ -13,7 +14,7 @@ export function validateMiraDeployment(env) {
   if (deploymentHost === 'immersation.com' || deploymentHost.endsWith('.immersation.com')) issues.push('The staging project must not have the live production domain.');
   if (env.MIRA_STAGING_READY !== 'true') issues.push('MIRA_STAGING_READY must be true after staging isolation is verified.');
   const ref = env.MIRA_STAGING_SUPABASE_REF || '';
-  if (!/^[a-z0-9]{20}$/.test(ref) || ref === 'zoneqvjrbcowlzwiyinq') issues.push('A separate staging Supabase project reference is required.');
+  if (ref !== 'dibfotxdupgdhbmhmrnl') issues.push('The confirmed staging Supabase project reference is required.');
   const stagingSupabase = `https://${ref}.supabase.co`;
   for (const name of ['VITE_SUPABASE_URL', 'SUPABASE_URL']) {
     if ((env[name] || '').replace(/\/$/,'') !== stagingSupabase) issues.push(`${name} must match the staging project.`);
@@ -34,17 +35,13 @@ export function validateMiraDeployment(env) {
       } catch { issues.push(`${name} has an invalid JWT payload.`); }
     }
   }
-  try {
-    const wp = new URL(env.WORDPRESS_MEDIA_BASE_URL || '');
-    const host = wp.hostname.toLowerCase().replace(/\.$/,'');
-    if (wp.protocol !== 'https:' || host === 'immersation.com' || host.endsWith('.immersation.com') || wp.username || wp.password || wp.pathname !== '/' || wp.search || wp.hash) throw Error();
-  } catch { issues.push('A separate HTTPS WordPress staging origin is required.'); }
+  if (!isWordPressStagingOrigin(env.WORDPRESS_MEDIA_BASE_URL)) issues.push('The approved WordPress staging origin is required.');
   try {
     const app = new URL(env.APP_URL || '');
     const host = app.hostname.toLowerCase().replace(/\.$/,'');
     if (app.protocol !== 'https:' || host === 'immersation.com' || host.endsWith('.immersation.com') || app.username || app.password || app.pathname !== '/' || app.search || app.hash) throw Error();
   } catch { issues.push('APP_URL must be a separate HTTPS staging origin.'); }
-  for (const name of ['SENDFOX_API_KEY','STRIPE_SECRET_KEY','STRIPE_WEBHOOK_SECRET','GEMINI_API_KEY']) {
+  for (const name of ['SENDFOX_API_KEY','SENDFOX_TOKEN','SENDFOX_KEY','SENDFOX_API_TOKEN','STRIPE_SECRET_KEY','STRIPE_WEBHOOK_SECRET','GEMINI_API_KEY']) {
     if (env[name]) issues.push(`${name} must be absent from this staging deployment until a separate test-only integration is reviewed.`);
   }
   return issues;

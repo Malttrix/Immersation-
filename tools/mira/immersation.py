@@ -24,7 +24,13 @@ class NoRedirect(request.HTTPRedirectHandler):
 
 def api(stage, path, method='GET', body=None, headers=None):
     base, token=config()
-    req=request.Request(base+'/api/editorial/agent'+path,data=body,method=method,headers={'Authorization':'Bearer '+token,**(headers or {})})
+    extra={}
+    bypass=os.environ.get('MIRA_VERCEL_BYPASS_SECRET','')
+    if bypass:
+        if base != 'https://immersation-staging.vercel.app' or not bypass.isascii() or not 1 <= len(bypass) <= 512 or any(ord(c) < 33 or ord(c) > 126 for c in bypass):
+            raise ClientError('configuration','INVALID_STAGING_BYPASS')
+        extra['x-vercel-protection-bypass']=bypass
+    req=request.Request(base+'/api/editorial/agent'+path,data=body,method=method,headers={'Authorization':'Bearer '+token,**extra,**(headers or {})})
     try:
         with request.build_opener(NoRedirect()).open(req,timeout=45) as res: return json.load(res)
     except error.HTTPError as exc:

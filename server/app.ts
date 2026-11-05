@@ -7,6 +7,7 @@ import { mountPublishing } from './publishing.js';
 import { mountEditorialAgent } from './editorial-agent.js';
 import { createWordPressAdapter, MediaError } from './wordpress-media.js';
 import { defaultBookContent } from './book-content.js';
+import { stagingCommerceBlocked } from './staging-commerce.js';
 
 type Dependencies = { env?: NodeJS.ProcessEnv; db?: SupabaseClient; stripe?: Stripe; mediaFetch?: typeof fetch };
 export function createApp(deps: Dependencies = {}) {
@@ -16,6 +17,10 @@ export function createApp(deps: Dependencies = {}) {
   const db = deps.db || (url && env.SUPABASE_SERVICE_ROLE_KEY ? createClient(url, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } }) : null);
   const app = express();
   app.disable('x-powered-by');
+  app.use((req,res,next) => {
+    if (stagingCommerceBlocked(env,req.path)) return res.status(503).json({code:'STAGING_COMMERCE_DISABLED',message:'Commerce is unavailable in editorial staging.'});
+    next();
+  });
   app.use('/api', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   const database = () => { if (!db) throw unavailable(); return db; };
   const gateway = () => { const config = paymentConfig(env); return { config, stripe: deps.stripe || new Stripe(config.key, { maxNetworkRetries: 2, timeout: 15000 }) }; };

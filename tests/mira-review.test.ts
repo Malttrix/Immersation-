@@ -43,7 +43,7 @@ test('transactional review gates exact revision, retries, visibility and legacy 
     for (const role of ['cover','pinterest1','pinterest2']) {
       const mediaKey = `asset_key_${role}_12345678`;
       await pg.query('select mira_media_start($1,$2,$3,$4)',[pkg.submissionId,mediaKey,role,fp]);
-      await pg.query('select mira_media_complete($1,$2::jsonb)',[mediaKey,JSON.stringify({id:123,url:`https://cms.immersation.com/${role}.jpg`,mime:'image/jpeg',width:1200,height:1800})]);
+      await pg.query('select mira_media_complete($1,$2::jsonb)',[mediaKey,JSON.stringify({id:123,url:`https://staging-cms.immersation.com/${role}.jpg`,mime:'image/jpeg',width:1200,height:1800})]);
     }
     await pg.query('select mira_finalize($1)',[pkg.submissionId]);
     await assert.rejects(pg.query('select mira_publish($1,$2)',['mira-sample-001',4]),/approved revision/);
@@ -95,9 +95,9 @@ test('agent HTTP submission rejects unauthorized and concurrent retries produce 
     let wpCount=0;
     const mediaFetch: typeof fetch = async (_url, options) => {
       wpCount++; const meta=await sharp(Buffer.from(options!.body as Uint8Array)).metadata();
-      return new Response(JSON.stringify({id:wpCount,source_url:`https://cms.immersation.com/wp-content/uploads/${wpCount}.png`,mime_type:'image/png',media_details:{width:meta.width,height:meta.height}}),{status:201});
+      return new Response(JSON.stringify({id:wpCount,source_url:`https://staging-cms.immersation.com/wp-content/uploads/${wpCount}.png`,mime_type:'image/png',media_details:{width:meta.width,height:meta.height}}),{status:201});
     };
-    server=createApp({env:{NODE_ENV:'test',MIRA_AGENT_TOKEN:token,WORDPRESS_MEDIA_BASE_URL:'https://cms.immersation.com',WORDPRESS_MEDIA_USERNAME:'fixture',WORDPRESS_MEDIA_APP_PASSWORD:'fixture'},db,mediaFetch}).listen(0,'127.0.0.1');
+    server=createApp({env:{NODE_ENV:'test',MIRA_AGENT_TOKEN:token,WORDPRESS_MEDIA_BASE_URL:'https://staging-cms.immersation.com',WORDPRESS_MEDIA_USERNAME:'fixture',WORDPRESS_MEDIA_APP_PASSWORD:'fixture'},db,mediaFetch}).listen(0,'127.0.0.1');
     await new Promise<void>((resolve,reject) => { server!.once('listening',resolve); server!.once('error',reject); });
     const base=`http://127.0.0.1:${(server.address() as any).port}/api/editorial/agent`;
     const send=(bearer: string, body: any = pkg) => fetch(base+'/drafts',{method:'POST',headers:{authorization:`Bearer ${bearer}`,'content-type':'application/json','idempotency-key':key},body:JSON.stringify(body)});
@@ -145,7 +145,7 @@ test('uncertain upload needs an administrator and a verified candidate; repeated
     await pg.query('select mira_media_uncertain($1)',[assetKey]);
     assert.equal((await pg.query<any>('select state from mira_media_uploads')).rows[0].state,'uncertain');
     await assert.rejects(pg.query('select mira_finalize($1)',[pkg.submissionId]),/incomplete|reconciliation/);
-    const asset={id:42,url:'https://cms.immersation.com/upload.png',mime:'image/png',width:900,height:600};
+    const asset={id:42,url:'https://staging-cms.immersation.com/upload.png',mime:'image/png',width:900,height:600};
     await assert.rejects(pg.query('select mira_media_reconcile($1,$2::jsonb,$3)',[assetKey,JSON.stringify(asset),'22222222-2222-4222-8222-222222222222']),/Administrator required/);
     await pg.query('select mira_media_reconcile($1,$2::jsonb,$3)',[assetKey,JSON.stringify(asset),'11111111-1111-4111-8111-111111111111']);
     await pg.query('select mira_media_reconcile($1,$2::jsonb,$3)',[assetKey,JSON.stringify(asset),'11111111-1111-4111-8111-111111111111']);

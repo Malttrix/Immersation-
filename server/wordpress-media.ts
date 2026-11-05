@@ -1,5 +1,6 @@
 import sharp, { type Metadata } from 'sharp';
 import { createHash } from 'node:crypto';
+import { isWordPressStagingOrigin } from '../scripts/wordpress-staging-origin.mjs';
 
 export const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_PIXELS = 32_000_000;
@@ -31,7 +32,7 @@ export type WordPressMedia = { id: number; url: string; mime: string; width: num
 export function createWordPressAdapter(env: NodeJS.ProcessEnv, transport: typeof fetch = fetch) {
   let base: URL;
   try { base = new URL(env.WORDPRESS_MEDIA_BASE_URL || ''); } catch { throw new MediaError('WORDPRESS_NOT_CONFIGURED'); }
-  if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash || base.pathname !== '/' || !env.WORDPRESS_MEDIA_USERNAME || !env.WORDPRESS_MEDIA_APP_PASSWORD) throw new MediaError('WORDPRESS_NOT_CONFIGURED');
+  if (!isWordPressStagingOrigin(env.WORDPRESS_MEDIA_BASE_URL) || !env.WORDPRESS_MEDIA_USERNAME || !env.WORDPRESS_MEDIA_APP_PASSWORD) throw new MediaError('WORDPRESS_NOT_CONFIGURED');
   const endpoint = new URL('/wp-json/wp/v2/media', base);
   const authorization = `Basic ${Buffer.from(`${env.WORDPRESS_MEDIA_USERNAME}:${env.WORDPRESS_MEDIA_APP_PASSWORD}`).toString('base64')}`;
   return {

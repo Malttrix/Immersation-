@@ -2,6 +2,33 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 
+test('automation bypass is restricted to the exact staging origin', () => {
+ const script=`
+import importlib.util, os
+from urllib import request
+spec=importlib.util.spec_from_file_location('mira','tools/mira/immersation.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+os.environ['MIRA_AGENT_TOKEN']='a'*43
+os.environ['MIRA_VERCEL_BYPASS_SECRET']='fixture-secret'
+os.environ['IMMERSATION_API_BASE']='https://immersation.com'
+try: m.api('test','/drafts')
+except m.ClientError as e: assert e.code=='INVALID_STAGING_BYPASS'
+else: raise AssertionError('bypass sent to another origin')
+class Fake:
+ def open(self,req,timeout):
+  assert req.get_header('X-vercel-protection-bypass')=='fixture-secret'
+  raise Exception('stop before network')
+request.build_opener=lambda *args: Fake()
+os.environ['IMMERSATION_API_BASE']='https://immersation-staging.vercel.app'
+try: m.api('test','/drafts')
+except m.ClientError as e: assert e.code=='NETWORK_ERROR'
+else: raise AssertionError('fixture did not stop')
+print('ok')
+`;
+ const result=spawnSync('python3',['-c',script],{encoding:'utf8'});
+ assert.equal(result.status,0,result.stderr);assert.equal(result.stdout.trim(),'ok');
+ assert.doesNotMatch(result.stdout+result.stderr,/fixture-secret/);
+});
+
 test('Hermes client retains uncertain upload keys and never prints credentials', () => {
   const script = `
 import importlib.util, tempfile
