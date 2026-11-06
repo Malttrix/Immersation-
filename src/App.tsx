@@ -574,6 +574,20 @@ export default function App() {
   const [showGoogleModal, setShowGoogleModal] = useState(false);
   const [googleEmailInput, setGoogleEmailInput] = useState("");
   const [signInPassword, setSignInPassword] = useState("");
+  const [passwordRecovery, setPasswordRecovery] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get("type") === "recovery");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [recoveryError, setRecoveryError] = useState("");
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
   const [googleAuthError, setGoogleAuthError] = useState("");
   const [adminTab, setAdminTab] = useState<"overview" | "members" | "books" | "transactions" | "library">("overview");
 
@@ -4283,6 +4297,45 @@ export default function App() {
 
         </div>
       </footer>
+      )}
+
+      {passwordRecovery && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-labelledby="recovery-title">
+          <form className="w-full max-w-md space-y-4 rounded-lg bg-white p-8 text-stone-900" onSubmit={async (event) => {
+            event.preventDefault();
+            if (!supabase || recoveryBusy) return;
+            if (newPassword !== confirmPassword) {
+              setRecoveryError(lang === "en" ? "Passwords do not match." : "两次输入的密码不一致。");
+              return;
+            }
+            setRecoveryBusy(true);
+            setRecoveryError("");
+            try {
+              const { error } = await supabase.auth.updateUser({ password: newPassword });
+              if (error) {
+                setRecoveryError(lang === "en" ? "Unable to update password. The link may have expired or the password may not meet the requirements." : "无法更新密码。链接可能已过期，或密码不符合要求。");
+              } else {
+                setNewPassword("");
+                setConfirmPassword("");
+                setPasswordRecovery(false);
+                window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+              }
+            } catch {
+              setRecoveryError(lang === "en" ? "Unable to update password. Please try again." : "无法更新密码，请重试。");
+            } finally {
+              setRecoveryBusy(false);
+            }
+          }}>
+            <h2 id="recovery-title" className="font-serif text-2xl">{lang === "en" ? "Set your password" : "设置密码"}</h2>
+            <p className="text-sm text-stone-600">{lang === "en" ? "Choose a new password for your account." : "为您的账号设置新密码。"}</p>
+            {recoveryError && <p role="alert" className="text-sm text-red-700">{recoveryError}</p>}
+            <label className="block text-sm" htmlFor="recovery-password">{lang === "en" ? "New password" : "新密码"}</label>
+            <input id="recovery-password" type="password" autoComplete="new-password" minLength={8} required value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full border p-3" />
+            <label className="block text-sm" htmlFor="recovery-confirm">{lang === "en" ? "Confirm password" : "确认密码"}</label>
+            <input id="recovery-confirm" type="password" autoComplete="new-password" minLength={8} required value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="w-full border p-3" />
+            <button type="submit" disabled={!supabase || recoveryBusy} className="w-full bg-[#1A2F24] p-3 text-white disabled:opacity-50">{lang === "en" ? "Save password" : "保存密码"}</button>
+          </form>
+        </div>
       )}
 
       {showGoogleModal && (
