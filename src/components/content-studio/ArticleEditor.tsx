@@ -13,6 +13,7 @@ import { EditorialDesignPanel } from "./EditorialDesignPanel";
 import { PublishingPanel } from "./PublishingPanel";
 import { AdvancedSEO } from "./AdvancedSEO";
 import { ArticlePreview } from "./ArticlePreview";
+import { MiraReviewDetails } from "./MiraReviewDetails";
 import { useArticleDraft } from "./useArticleDraft";
 import {
   mediaChoices,
@@ -139,6 +140,22 @@ export function ArticleEditor({
           </button>
         </div>
       </header>
+      {article._studioExtensions?.miraSubmissionId && (
+        <aside className="studio-notice" aria-label="MIRA editorial review">
+          <strong>MIRA editorial review</strong>
+          <p>Save changes before review. Approval applies only to this saved revision; later edits require a new approval.</p>
+          {[['request_revision', 'Request revision'], ['reject', 'Reject'], ['approve', 'Approve revision']].map(([action, label]) => (
+            <button key={action} type="button" disabled={dirty || state === 'Saving'} onClick={async () => {
+              try {
+                if (!repository.review) throw Error('Remote review is unavailable.');
+                await repository.review(article.id, article.studio_revision || 0, action);
+                window.alert('Review action saved.');
+              } catch (e) { window.alert(e instanceof Error ? e.message : 'Review action failed.'); }
+            }}>{label}</button>
+          ))}
+        </aside>
+      )}
+      {article._studioExtensions?.miraSubmissionId && <MiraReviewDetails article={article} repository={repository} onSaved={(a) => { onSaved(a); onClose(); }} dirty={dirty} />}
       {draft.recovery && (
         <aside className="studio-notice">
           <p>

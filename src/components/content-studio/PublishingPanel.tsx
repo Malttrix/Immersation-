@@ -28,9 +28,10 @@ export function PublishingPanel({
             onChange={(e) => change({ status: e.target.value })}
           >
             <option>Draft</option>
-            <option>Published</option>
-            <option>Scheduled</option>
+            <option disabled={!!a._studioExtensions?.miraSubmissionId}>Published</option>
+            <option disabled={!!a._studioExtensions?.miraSubmissionId}>Scheduled</option>
           </select>
+          {a._studioExtensions?.miraSubmissionId && <p>Save MIRA changes as Draft, then approve the saved revision. MIRA publication is disabled.</p>}
         </Field>
         <Field label="Publish date">
           <input

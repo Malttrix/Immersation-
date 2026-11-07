@@ -163,6 +163,8 @@ export function validateArticle(
     errors.push("This slug belongs to another article.");
   if (!a.title.en.trim() && !a.title.zh.trim())
     errors.push("Add an article title in at least one language.");
+  if (a._studioExtensions?.miraSubmissionId && a.status !== "Draft")
+    errors.push("Set Publication status to Draft to save MIRA edits. MIRA publication is disabled.");
   if (a.status !== "Draft")
     for (const l of ["en", "zh"] as const)
       if (!a.title[l].trim() || !a.excerpt[l].trim() || !a.content[l].trim())
@@ -251,9 +253,55 @@ export interface ArticleRepository {
   saveDestination?: "remote" | "browser-review";
   list(): Promise<StudioArticle[]>;
   save(article: StudioArticle, revision: number): Promise<StudioArticle>;
+  review?(id: string, revision: number, action: string): Promise<any>;
+  reviewDetails?(id: string): Promise<any>;
+  updateEditorial?(id: string, revision: number, patch: any): Promise<StudioArticle>;
+  mediaOperations?(id: string): Promise<any[]>;
+  reconcileMedia?(key: string, mediaId: number): Promise<void>;
+  confirmMediaAbsent?(key: string, evidence: string): Promise<void>;
+  publishReviewed?(id: string, revision: number): Promise<StudioArticle>;
 }
 export function supabaseArticleRepository(client: any): ArticleRepository {
   return {
+    async updateEditorial(id, revision, patch) {
+      const {data, error} = await client.rpc("mira_update_editorial", {p_article:id,p_revision:revision,p_patch:patch});
+      if (error || !data) throw Error(error?.message || "Save failed.");
+      return hydrateArticle(data);
+    },
+    async mediaOperations(id) {
+      const {data,error} = await client.rpc("mira_media_operations",{p_article:id});
+      if (error) throw Error(error.message);
+      return data || [];
+    },
+    async confirmMediaAbsent(key, evidence) {
+      const {data} = await client.auth.getSession();
+      const token=data.session?.access_token;
+      if (!token) throw Error("Sign in as an administrator.");
+      const response=await fetch("/api/admin/mira/media/confirm-absent", {method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${token}`},body:JSON.stringify({requestKey:key,evidence,confirm:true})});
+      if (!response.ok) throw Error("Absence was not confirmed. Check candidates, evidence and the waiting period.");
+    },
+    async reconcileMedia(key, mediaId) {
+      const {data} = await client.auth.getSession();
+      const token=data.session?.access_token;
+      if (!token) throw Error("Sign in as an administrator.");
+      const response=await fetch("/api/admin/mira/media/reconcile", {method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${token}`},body:JSON.stringify({requestKey:key,mediaId})});
+      if (!response.ok) throw Error("Verification failed. Inspect WordPress and try again only with a verified media ID.");
+    },
+    async reviewDetails(id) {
+      const {data, error} = await client.rpc("mira_review_details", {p_article: id});
+      if (error) throw Error(error.message);
+      return data;
+    },
+    async review(id, revision, action) {
+      const { data, error } = await client.rpc("mira_review", { p_article: id, p_revision: revision, p_action: action });
+      if (error) throw Error(error.message);
+      return data;
+    },
+    async publishReviewed(id, revision) {
+      const { data, error } = await client.rpc("mira_publish", { p_article: id, p_revision: revision });
+      if (error || !data) throw Error(error?.message || "Publication not confirmed.");
+      return hydrateArticle(data);
+    },
     async list() {
       if (!client)
         throw Error("Supabase is not configured. No remote save is available.");
@@ -274,6 +322,8 @@ export function supabaseArticleRepository(client: any): ArticleRepository {
         throw Error(
           error.code === "40001"
             ? "This article changed in another session. Export your draft, close, and reopen the latest version before saving."
+            : error.message === "An exact approved revision is required"
+              ? "Set Publication status to Draft to save MIRA edits. MIRA publication is disabled. Your unsaved changes remain in this browser."
             : `${error.message} No save was confirmed. Check that the Stage 3 migration is installed.`,
         );
       if (!data) throw Error("The server did not confirm a save.");
