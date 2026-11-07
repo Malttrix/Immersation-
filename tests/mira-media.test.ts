@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
-import { prepareImage, createWordPressAdapter, MAX_IMAGE_BYTES } from '../server/wordpress-media';
+import { prepareImage, createWordPressAdapter, MAX_IMAGE_BYTES, verifyStagingMedia } from '../server/wordpress-media';
 const env = { WORDPRESS_MEDIA_BASE_URL:'https://staging-cms.immersation.com', WORDPRESS_MEDIA_USERNAME:'test', WORDPRESS_MEDIA_APP_PASSWORD:'test-password' };
 const raw = (width=900,height=600) => sharp({create:{width,height,channels:3,background:'red'}}).png().toBuffer();
 test('image pipeline decodes formats, size, dimensions and strips metadata', async () => {
@@ -56,4 +56,21 @@ test('only the approved staging WordPress origin is accepted by the adapter', ()
  }
  assert.doesNotThrow(()=>createWordPressAdapter(env));
  assert.doesNotThrow(()=>createWordPressAdapter({...env,WORDPRESS_MEDIA_BASE_URL:env.WORDPRESS_MEDIA_BASE_URL+'/'}));
+});
+test('staging verification requires recorded metadata and exact validated image bytes', async () => {
+ const image=await prepareImage(await raw(),'cover'), op='a'.repeat(32);
+ const asset={id:10,url:`https://staging-cms.immersation.com/wp-content/uploads/2026/11/mira-cover-${op}.png`,mime:image.mime,width:image.width,height:image.height};
+ const record={id:10,source_url:asset.url,mime_type:asset.mime,media_details:{width:asset.width,height:asset.height}};
+ const fake=(metadata=record, imageBody: Uint8Array=image.bytes, mime='image/png'): typeof fetch => async (url,opts) => {
+  assert.equal(opts?.redirect,'error');
+  if (String(url).includes('/wp-json/')) return new Response(JSON.stringify(metadata),{headers:{'content-type':'application/json'}});
+  assert.equal(String(url),asset.url); return new Response(new Uint8Array(imageBody),{headers:{'content-type':mime}});
+ };
+ await verifyStagingMedia(asset,'cover',op,image.sha256,fake());
+ await assert.rejects(verifyStagingMedia(asset,'cover',op,image.sha256,fake(record,image.bytes,'text/html')),/MEDIA_VERIFICATION_FAILED/);
+ await assert.rejects(verifyStagingMedia(asset,'cover',op,image.sha256,fake(record,Buffer.from('not an image'))),/MEDIA_VERIFICATION_FAILED/);
+ await assert.rejects(verifyStagingMedia(asset,'cover',op,'b'.repeat(64),fake()),/MEDIA_VERIFICATION_FAILED/);
+ await assert.rejects(verifyStagingMedia(asset,'cover',op,image.sha256,fake({...record,source_url:'https://evil.example/x'})),/MEDIA_VERIFICATION_FAILED/);
+ await assert.rejects(verifyStagingMedia({...asset,url:'https://staging-cms.immersation.com.evil.example/x'},'cover',op,image.sha256,fake()),/MEDIA_VERIFICATION_FAILED/);
+ await assert.rejects(verifyStagingMedia(asset,'cover',op,image.sha256,async()=>new Response('',{status:302,headers:{location:'https://evil.example'}})),/MEDIA_VERIFICATION_FAILED/);
 });

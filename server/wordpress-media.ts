@@ -29,6 +29,35 @@ export async function prepareImage(bytes: Buffer, role: string): Promise<Prepare
   return { bytes: normalized, mime: `image/${metadata.format}`, width, height, extension, sha256: createHash('sha256').update(normalized).digest('hex') };
 }
 export type WordPressMedia = { id: number; url: string; mime: string; width: number; height: number };
+
+/** Verify an existing completed staging upload; never accept a caller-provided URL. */
+export async function verifyStagingMedia(asset: WordPressMedia, role: string, operationId: string, expectedHash: string, transport: typeof fetch = fetch): Promise<void> {
+  const origin = 'https://staging-cms.immersation.com';
+  if (!asset || !Number.isSafeInteger(asset.id) || asset.id < 1 || !/^(cover|background|pinterest[12]|instagram[1-9])$/.test(role) || !/^[a-f0-9]{32}$/.test(operationId) || !/^[a-f0-9]{64}$/.test(expectedHash)) throw new MediaError('MEDIA_VERIFICATION_FAILED');
+  let saved: URL;
+  try { saved = new URL(asset.url); } catch { throw new MediaError('MEDIA_VERIFICATION_FAILED'); }
+  const filename = `mira-${role}-${operationId}`;
+  if (saved.origin !== origin || saved.username || saved.password || saved.search || saved.hash || !new RegExp(`^/wp-content/uploads/\\d{4}/\\d{2}/${filename}\\.(jpg|png|webp)$`).test(saved.pathname)) throw new MediaError('MEDIA_VERIFICATION_FAILED');
+  try {
+    const metadata = await transport(`${origin}/wp-json/wp/v2/media/${asset.id}`, { redirect:'error', signal:AbortSignal.timeout(10000), headers:{accept:'application/json'} });
+    if (metadata.status !== 200 || !metadata.headers.get('content-type')?.toLowerCase().startsWith('application/json') || Number(metadata.headers.get('content-length') || 0) > 262144 || !metadata.body) throw Error();
+    const readLimited = async (response: Response, limit: number) => {
+      const reader = response.body!.getReader(); const chunks: Uint8Array[] = []; let length = 0;
+      for (;;) { const part = await reader.read(); if (part.done) break; length += part.value.length; if (length > limit) { await reader.cancel(); throw Error(); } chunks.push(part.value); }
+      return Buffer.concat(chunks);
+    };
+    const record = JSON.parse((await readLimited(metadata, 262144)).toString('utf8'));
+    if (record.id !== asset.id || record.source_url !== saved.href || record.mime_type !== asset.mime || record.media_details?.width !== asset.width || record.media_details?.height !== asset.height) throw Error();
+    const response = await transport(saved.href, { redirect:'error', signal:AbortSignal.timeout(15000), headers:{'User-Agent':'Mozilla/5.0 MIRA-Staging-Test','Referer':'https://immersation-staging.vercel.app/'} });
+    const mime = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
+    if (response.status !== 200 || !response.body || mime !== asset.mime || !['image/png','image/jpeg','image/webp'].includes(mime || '') || Number(response.headers.get('content-length') || 0) > MAX_IMAGE_BYTES) throw Error();
+    const bytes = await readLimited(response, MAX_IMAGE_BYTES);
+    const valid = mime === 'image/png' ? bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])) : mime === 'image/jpeg' ? bytes.subarray(0,3).equals(Buffer.from([255,216,255])) : bytes.subarray(0,4).toString() === 'RIFF' && bytes.subarray(8,12).toString() === 'WEBP';
+    if (!valid || createHash('sha256').update(bytes).digest('hex') !== expectedHash) throw Error();
+    const info = await sharp(bytes, {failOn:'error',limitInputPixels:MAX_PIXELS}).metadata();
+    if (`image/${info.format}` !== mime || info.width !== asset.width || info.height !== asset.height || (info.pages || 1) !== 1) throw Error();
+  } catch { throw new MediaError('MEDIA_VERIFICATION_FAILED'); }
+}
 export function createWordPressAdapter(env: NodeJS.ProcessEnv, transport: typeof fetch = fetch) {
   let base: URL;
   try { base = new URL(env.WORDPRESS_MEDIA_BASE_URL || ''); } catch { throw new MediaError('WORDPRESS_NOT_CONFIGURED'); }

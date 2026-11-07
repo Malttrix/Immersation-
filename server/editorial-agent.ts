@@ -2,7 +2,7 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createHash, timingSafeEqual, randomUUID } from 'node:crypto';
 import { validateEditorialPackage } from './editorial-package.js';
-import { createWordPressAdapter, prepareImage, MAX_IMAGE_BYTES, MediaError } from './wordpress-media.js';
+import { createWordPressAdapter, prepareImage, MAX_IMAGE_BYTES, MediaError, verifyStagingMedia } from './wordpress-media.js';
 
 const digest = (s: string) => createHash('sha256').update(s).digest();
 export function agentAuthorized(header: string | undefined, env: NodeJS.ProcessEnv): boolean {
@@ -62,6 +62,19 @@ export function mountEditorialAgent(app: Express, db: SupabaseClient | null, env
       if (!result.data) return res.status(404).json({code:'NOT_FOUND'});
       return res.json(result.data);
     } catch { return res.status(503).json({code:'UNAVAILABLE'}); }
+  });
+  app.get(`${root}/drafts/:id/assets/:role/verify`, async (req,res) => {
+    const key = req.get('idempotency-key') || '', id = req.params.id, role = req.params.role;
+    if (env.VERCEL !== '1' || env.VERCEL_PROJECT_NAME !== 'immersation-staging' || env.VERCEL_PROJECT_ID !== 'prj_Ip7SJfJuqk1B7OfTkm0Jl1ceBwk0' || env.MIRA_STAGING_SUPABASE_REF !== 'dibfotxdupgdhbmhmrnl' || env.SUPABASE_URL !== 'https://dibfotxdupgdhbmhmrnl.supabase.co' || env.APP_URL?.replace(/\/$/,'') !== 'https://immersation-staging.vercel.app' || env.WORDPRESS_MEDIA_BASE_URL?.replace(/\/$/,'') !== 'https://staging-cms.immersation.com') return res.status(404).json({code:'NOT_FOUND'});
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id) || !/^(cover|background|pinterest[12]|instagram[1-9])$/.test(role) || !/^[A-Za-z0-9_-]{16,128}$/.test(key)) return res.status(400).json({code:'INVALID_REQUEST'});
+    try {
+      const result = await db!.from('mira_media_uploads').select('state,result,sha256,operation_id').eq('submission_id',id).eq('role',role).eq('request_key',key).maybeSingle();
+      if (result.error) return res.status(503).json({code:'UNAVAILABLE'});
+      if (!result.data || result.data.state !== 'completed') return res.status(404).json({code:'NOT_FOUND'});
+      const row = result.data;
+      await verifyStagingMedia(row.result, role, row.operation_id, row.sha256, mediaFetch);
+      return res.json({verified:true, id:row.result.id, role});
+    } catch { return res.status(502).json({code:'MEDIA_VERIFICATION_FAILED'}); }
   });
   app.post(`${root}/drafts`, async (req, res) => {
     if (!req.is('application/json')) return res.status(415).json({ code: 'CONTENT_TYPE' });
