@@ -28,6 +28,24 @@ export function mountEditorialAgent(app: Express, db: SupabaseClient | null, env
     if (!db) return res.status(503).json({ code: 'UNAVAILABLE' });
     next();
   });
+  // Read-only identity check: no upload, no database RPC, and no caller-supplied destination.
+  // The agent middleware above authenticates this endpoint before any upstream request.
+  app.get(`${root}/diagnostics/wordpress`, async (_req, res) => {
+    if (env.VERCEL !== '1' || validateMiraProduction(env).length !== 0) return res.status(404).json({code:'NOT_FOUND'});
+    const authorization=`Basic ${Buffer.from(`${env.WORDPRESS_MEDIA_USERNAME}:${env.WORDPRESS_MEDIA_APP_PASSWORD}`).toString('base64')}`;
+    try {
+      const response=await mediaFetch('https://cms.immersation.com/index.php?rest_route=%2Fwp%2Fv2%2Fusers%2Fme&context=edit', {
+        method:'GET',redirect:'error',signal:AbortSignal.timeout(10000),headers:{authorization,accept:'application/json','User-Agent':'Immersation-MIRA-Media-Diagnostic/1.0'}
+      });
+      if (!response.headers.get('content-type')?.toLowerCase().startsWith('application/json') || !response.body) return res.status(502).json({code:'WORDPRESS_NON_JSON',upstreamStatus:response.status});
+      const reader=response.body.getReader(), chunks:Uint8Array[]=[]; let size=0;
+      for (;;) {const part=await reader.read();if(part.done) break;size+=part.value.length;if(size>16384){await reader.cancel();return res.status(502).json({code:'WORDPRESS_RESPONSE_TOO_LARGE',upstreamStatus:response.status});}chunks.push(part.value);}
+      const body=JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if (response.status===200 && body?.username==='mira-media-prod') return res.json({verified:true,upstreamStatus:200,username:'mira-media-prod'});
+      const allowed=new Set(['rest_not_logged_in','rest_forbidden_context','mira_role_invalid','mira_rest_forbidden','incorrect_password','invalid_username','application_passwords_disabled']);
+      return res.status(502).json({code:'WORDPRESS_AUTH_NOT_VERIFIED',upstreamStatus:response.status,...(typeof body?.code==='string' && allowed.has(body.code)?{wordpressCode:body.code}:{})});
+    } catch { return res.status(502).json({code:'WORDPRESS_DIAGNOSTIC_UNAVAILABLE'}); }
+  });
   app.use(root, express.json({ limit: '600kb', strict: true }));
   app.use(root, async (_req, res, next) => {
     try {
