@@ -93,16 +93,21 @@ export function createWordPressAdapter(env: NodeJS.ProcessEnv, transport: typeof
     },
     async checkNoCandidates(operationId: string): Promise<void> {
       if (!/^[a-f0-9]{32}$/.test(operationId)) throw new MediaError('INVALID_OPERATION');
-      const query = mediaEndpoint(base.origin);
-      query.searchParams.set('search',operationId); query.searchParams.set('per_page','100'); query.searchParams.set('context','edit');
+      const route = `/mira/v1/media-candidates/${operationId}`;
+      const query = new URL(base.origin === PRODUCTION_WORDPRESS_ORIGIN ? '/index.php' : `/wp-json${route}`, base.origin);
+      if (base.origin === PRODUCTION_WORDPRESS_ORIGIN) query.searchParams.set('rest_route', route);
       let response: Response;
-      try { response = await transport(query,{headers:{authorization,'User-Agent':MEDIA_USER_AGENT},redirect:'error',signal:AbortSignal.timeout(10000)}); }
+      try { response = await transport(query,{headers:{authorization,'User-Agent':MEDIA_USER_AGENT,accept:'application/json'},redirect:'error',signal:AbortSignal.timeout(10000)}); }
       catch { throw new MediaError('WORDPRESS_UNAVAILABLE'); }
-      if (!response.ok) throw new MediaError('WORDPRESS_UNAVAILABLE');
-      const total = response.headers.get('x-wp-total');
-      let items: unknown; try { items=await response.json(); } catch { throw new MediaError('WORDPRESS_UNAVAILABLE'); }
-      if (total === null || !/^\d+$/.test(total) || !Array.isArray(items)) throw new MediaError('WORDPRESS_UNAVAILABLE');
-      if (Number(total)!==0 || items.length!==0) throw new MediaError('CANDIDATES_EXIST');
+      if (response.status !== 200 || !response.headers.get('content-type')?.toLowerCase().startsWith('application/json') || !response.body) throw new MediaError('WORDPRESS_UNAVAILABLE');
+      let result: any;
+      try {
+        const reader=response.body.getReader(); const chunks: Uint8Array[]=[]; let size=0;
+        for (;;) { const part=await reader.read(); if(part.done) break; size+=part.value.length; if(size>4096) {await reader.cancel(); throw Error();} chunks.push(part.value); }
+        result=JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      } catch { throw new MediaError('WORDPRESS_UNAVAILABLE'); }
+      if (result?.version !== 1 || result.operation !== operationId || result.scope !== 'operator_attachment_metadata' || result.complete !== true || !Number.isSafeInteger(result.count) || result.count < 0) throw new MediaError('WORDPRESS_UNAVAILABLE');
+      if (result.count !== 0) throw new MediaError('CANDIDATES_EXIST');
       // A search alone cannot prove absence: an administrator must independently
       // audit the complete media library and record their evidence and decision.
     },
