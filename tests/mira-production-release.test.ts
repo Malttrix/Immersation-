@@ -21,7 +21,7 @@ test('production MIRA is disabled by default without blocking existing site buil
 });
 
 test('enabled production requires the exact production services', () => {
-  const ready={...production,MIRA_PRODUCTION_READY:'true',SUPABASE_URL:'https://zoneqvjrbcowlzwiyinq.supabase.co',VITE_SUPABASE_URL:'https://zoneqvjrbcowlzwiyinq.supabase.co',APP_URL:'https://immersation.com',WORDPRESS_MEDIA_BASE_URL:'https://cms.immersation.com',WORDPRESS_MEDIA_USERNAME:'test',WORDPRESS_MEDIA_APP_PASSWORD:'test',MIRA_AGENT_TOKEN:'a'.repeat(43),SUPABASE_SERVICE_ROLE_KEY:'test',VITE_SUPABASE_ANON_KEY:'test'};
+  const ready={...production,MIRA_PRODUCTION_READY:'true',SUPABASE_URL:'https://zoneqvjrbcowlzwiyinq.supabase.co',VITE_SUPABASE_URL:'https://zoneqvjrbcowlzwiyinq.supabase.co',APP_URL:'https://immersation.com',WORDPRESS_MEDIA_BASE_URL:'https://cms.immersation.com',WORDPRESS_MEDIA_USERNAME:'mira-media-prod',WORDPRESS_MEDIA_APP_PASSWORD:'test',MIRA_AGENT_TOKEN:'a'.repeat(43),SUPABASE_SERVICE_ROLE_KEY:'test',VITE_SUPABASE_ANON_KEY:'test'};
   assert.deepEqual(validateMiraDeployment(ready),[]);
-  for(const change of [{SUPABASE_URL:'https://dibfotxdupgdhbmhmrnl.supabase.co'},{WORDPRESS_MEDIA_BASE_URL:'https://staging-cms.immersation.com'},{VERCEL_GIT_COMMIT_REF:'feature/other'},{MIRA_STAGING_READY:'true'}]) assert.ok(validateMiraDeployment({...ready,...change}).length);
+  for(const change of [{SUPABASE_URL:'https://dibfotxdupgdhbmhmrnl.supabase.co'},{WORDPRESS_MEDIA_BASE_URL:'https://staging-cms.immersation.com'},{WORDPRESS_MEDIA_USERNAME:'administrator'},{VERCEL_GIT_COMMIT_REF:'feature/other'},{MIRA_STAGING_READY:'true'}]) assert.ok(validateMiraDeployment({...ready,...change}).length);
 });

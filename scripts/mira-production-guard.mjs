@@ -9,6 +9,7 @@ export function validateMiraProduction(env) {
   if (env.SUPABASE_URL?.replace(/\/$/,'') !== 'https://zoneqvjrbcowlzwiyinq.supabase.co' || env.VITE_SUPABASE_URL?.replace(/\/$/,'') !== 'https://zoneqvjrbcowlzwiyinq.supabase.co') errors.push('Production Supabase identity mismatch.');
   if (env.APP_URL?.replace(/\/$/,'') !== 'https://immersation.com') errors.push('Production APP_URL mismatch.');
   if (!PRODUCTION_WORDPRESS_ORIGIN || env.WORDPRESS_MEDIA_BASE_URL?.replace(/\/$/,'') !== PRODUCTION_WORDPRESS_ORIGIN) errors.push('Production WordPress origin has not been independently confirmed.');
+  if (env.WORDPRESS_MEDIA_USERNAME !== 'mira-media-prod') errors.push('The restricted production media account is required.');
   for (const name of ['MIRA_AGENT_TOKEN','SUPABASE_SERVICE_ROLE_KEY','VITE_SUPABASE_ANON_KEY','WORDPRESS_MEDIA_USERNAME','WORDPRESS_MEDIA_APP_PASSWORD']) if (!env[name]) errors.push(`${name} is required.`);
   if (!/^[A-Za-z0-9_-]{43,128}$/.test(env.MIRA_AGENT_TOKEN || '')) errors.push('Production agent token format is invalid.');
   for (const name of ['VITE_SUPABASE_ANON_KEY','SUPABASE_SERVICE_ROLE_KEY']) {

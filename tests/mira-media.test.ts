@@ -79,9 +79,16 @@ test('production byte verifier accepts only the pinned production media host', a
  const asset={id:10,url:`${origin}/wp-content/uploads/2026/11/mira-cover-${op}.png`,mime:image.mime,width:image.width,height:image.height};
  const fake:typeof fetch=async (url,opts)=>{
   assert.equal(opts?.redirect,'error');
-  if(String(url).includes('/wp-json/')) {assert.equal((opts?.headers as any).authorization,'Basic fixture'); return new Response(JSON.stringify({id:10,source_url:asset.url,mime_type:asset.mime,media_details:{width:asset.width,height:asset.height}}),{headers:{'content-type':'application/json'}});}
+  if(new URL(String(url)).pathname==='/index.php') {const endpoint=new URL(String(url));assert.equal(endpoint.origin,origin);assert.equal(endpoint.searchParams.get('rest_route'),'/wp/v2/media/10');assert.equal((opts?.headers as any).authorization,'Basic fixture'); return new Response(JSON.stringify({id:10,source_url:asset.url,mime_type:asset.mime,media_details:{width:asset.width,height:asset.height}}),{headers:{'content-type':'application/json'}});}
   assert.equal((opts?.headers as any).authorization,undefined);assert.equal(String(url),asset.url);return new Response(new Uint8Array(image.bytes),{headers:{'content-type':'image/png'}});
  };
  await verifyStagingMedia(asset,'cover',op,image.sha256,fake,origin,'https://immersation.com/','Basic fixture');
  await assert.rejects(verifyStagingMedia({...asset,url:asset.url.replace(origin,'https://staging-cms.immersation.com')},'cover',op,image.sha256,fake,origin,'https://immersation.com/','Basic fixture'),/MEDIA_VERIFICATION_FAILED/);
+});
+test('production upload uses authenticated index REST route without following redirects',async()=>{
+ const image=await prepareImage(await raw(),'cover'),origin='https://cms.immersation.com';
+ const prod={VERCEL:'1',VERCEL_ENV:'production',VERCEL_PROJECT_NAME:'immersation',VERCEL_PROJECT_ID:'prj_enkXTJiyVnkh7AeLYxYI1qXiJfQu',VERCEL_GIT_COMMIT_REF:'main',MIRA_PRODUCTION_READY:'true',SUPABASE_URL:'https://zoneqvjrbcowlzwiyinq.supabase.co',VITE_SUPABASE_URL:'https://zoneqvjrbcowlzwiyinq.supabase.co',APP_URL:'https://immersation.com',WORDPRESS_MEDIA_BASE_URL:origin,WORDPRESS_MEDIA_USERNAME:'mira-media-prod',WORDPRESS_MEDIA_APP_PASSWORD:'fixture-only',MIRA_AGENT_TOKEN:'x'.repeat(43),SUPABASE_SERVICE_ROLE_KEY:'test',VITE_SUPABASE_ANON_KEY:'test'};
+ const transport:typeof fetch=async (url,opts)=>{const u=new URL(String(url));assert.equal(u.origin,origin);assert.equal(u.pathname,'/index.php');assert.equal(u.searchParams.get('rest_route'),'/wp/v2/media');assert.equal(opts?.method,'POST');assert.equal(opts?.redirect,'error');assert.match((opts?.headers as any).authorization,/^Basic /);assert.match((opts?.headers as any)['User-Agent'],/^Immersation-MIRA/);return new Response(JSON.stringify({id:42,source_url:`${origin}/wp-content/uploads/file.png`,mime_type:image.mime,media_details:{width:image.width,height:image.height}}),{status:201});};
+ assert.equal((await createWordPressAdapter(prod,transport).upload(image,'cover')).id,42);
+ await assert.rejects(createWordPressAdapter(prod,async()=>new Response('',{status:301,headers:{location:'https://evil.example'}})).upload(image,'cover'),/WORDPRESS_RESULT_UNKNOWN/);
 });

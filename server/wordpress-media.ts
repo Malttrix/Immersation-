@@ -5,6 +5,16 @@ import { PRODUCTION_WORDPRESS_ORIGIN, validateMiraProduction } from '../scripts/
 
 export const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_PIXELS = 32_000_000;
+const MEDIA_USER_AGENT = 'Immersation-MIRA-Media-Diagnostic/1.0';
+const STAGING_ORIGIN = 'https://staging-cms.immersation.com';
+function mediaEndpoint(origin: string, id?: number): URL {
+  if (origin !== STAGING_ORIGIN && origin !== PRODUCTION_WORDPRESS_ORIGIN) throw new MediaError('WORDPRESS_NOT_CONFIGURED');
+  if (id !== undefined && (!Number.isSafeInteger(id) || id < 1)) throw new MediaError('WORDPRESS_NOT_CONFIGURED');
+  const route = `/wp/v2/media${id === undefined ? '' : `/${id}`}`;
+  const endpoint = new URL(origin === PRODUCTION_WORDPRESS_ORIGIN ? '/index.php' : `/wp-json${route}`, origin);
+  if (origin === PRODUCTION_WORDPRESS_ORIGIN) endpoint.searchParams.set('rest_route', route);
+  return endpoint;
+}
 export type PreparedImage = { bytes: Buffer; mime: string; width: number; height: number; sha256: string; extension: string };
 export class MediaError extends Error {
   constructor(public code: string, public uncertain = false) { super(code); }
@@ -39,7 +49,7 @@ export async function verifyStagingMedia(asset: WordPressMedia, role: string, op
   const filename = `mira-${role}-${operationId}`;
   if (saved.origin !== origin || saved.username || saved.password || saved.search || saved.hash || !new RegExp(`^/wp-content/uploads/\\d{4}/\\d{2}/${filename}\\.(jpg|png|webp)$`).test(saved.pathname)) throw new MediaError('MEDIA_VERIFICATION_FAILED');
   try {
-    const metadata = await transport(`${origin}/wp-json/wp/v2/media/${asset.id}`, { redirect:'error', signal:AbortSignal.timeout(10000), headers:{accept:'application/json', ...(metadataAuthorization ? {authorization:metadataAuthorization} : {})} });
+    const metadata = await transport(mediaEndpoint(origin,asset.id), { redirect:'error', signal:AbortSignal.timeout(10000), headers:{accept:'application/json','User-Agent':MEDIA_USER_AGENT, ...(metadataAuthorization ? {authorization:metadataAuthorization} : {})} });
     if (metadata.status !== 200 || !metadata.headers.get('content-type')?.toLowerCase().startsWith('application/json') || Number(metadata.headers.get('content-length') || 0) > 262144 || !metadata.body) throw Error();
     const readLimited = async (response: Response, limit: number) => {
       const reader = response.body!.getReader(); const chunks: Uint8Array[] = []; let length = 0;
@@ -64,14 +74,14 @@ export function createWordPressAdapter(env: NodeJS.ProcessEnv, transport: typeof
   const staging = env.VERCEL_PROJECT_ID !== 'prj_enkXTJiyVnkh7AeLYxYI1qXiJfQu' && isWordPressStagingOrigin(env.WORDPRESS_MEDIA_BASE_URL);
   const production = !!PRODUCTION_WORDPRESS_ORIGIN && validateMiraProduction(env).length === 0 && base.origin === PRODUCTION_WORDPRESS_ORIGIN;
   if ((!staging && !production) || !env.WORDPRESS_MEDIA_USERNAME || !env.WORDPRESS_MEDIA_APP_PASSWORD) throw new MediaError('WORDPRESS_NOT_CONFIGURED');
-  const endpoint = new URL('/wp-json/wp/v2/media', base);
+  const endpoint = mediaEndpoint(base.origin);
   const authorization = `Basic ${Buffer.from(`${env.WORDPRESS_MEDIA_USERNAME}:${env.WORDPRESS_MEDIA_APP_PASSWORD}`).toString('base64')}`;
   return {
     async upload(image: PreparedImage, role: string, operationId = image.sha256.slice(0,32)): Promise<WordPressMedia> {
       const filename = `mira-${role}-${operationId}.${image.extension}`;
       let response: Response;
       try {
-        response = await transport(endpoint, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(20000), headers: { authorization, 'content-type': image.mime, 'content-disposition': `attachment; filename="${filename}"` }, body: new Uint8Array(image.bytes) });
+        response = await transport(endpoint, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(20000), headers: { authorization, 'User-Agent':MEDIA_USER_AGENT, 'content-type': image.mime, 'content-disposition': `attachment; filename="${filename}"` }, body: new Uint8Array(image.bytes) });
       } catch { throw new MediaError('WORDPRESS_RESULT_UNKNOWN', true); }
       if (!response.ok) throw new MediaError(response.status === 401 || response.status === 403 ? 'WORDPRESS_UNAUTHORIZED' : response.status === 429 ? 'WORDPRESS_RATE_LIMIT' : 'WORDPRESS_RESULT_UNKNOWN', true);
       let body: any;
@@ -83,10 +93,10 @@ export function createWordPressAdapter(env: NodeJS.ProcessEnv, transport: typeof
     },
     async checkNoCandidates(operationId: string): Promise<void> {
       if (!/^[a-f0-9]{32}$/.test(operationId)) throw new MediaError('INVALID_OPERATION');
-      const query = new URL('/wp-json/wp/v2/media', base);
+      const query = mediaEndpoint(base.origin);
       query.searchParams.set('search',operationId); query.searchParams.set('per_page','100'); query.searchParams.set('context','edit');
       let response: Response;
-      try { response = await transport(query,{headers:{authorization},redirect:'error',signal:AbortSignal.timeout(10000)}); }
+      try { response = await transport(query,{headers:{authorization,'User-Agent':MEDIA_USER_AGENT},redirect:'error',signal:AbortSignal.timeout(10000)}); }
       catch { throw new MediaError('WORDPRESS_UNAVAILABLE'); }
       if (!response.ok) throw new MediaError('WORDPRESS_UNAVAILABLE');
       const total = response.headers.get('x-wp-total');
@@ -99,7 +109,7 @@ export function createWordPressAdapter(env: NodeJS.ProcessEnv, transport: typeof
     async verifyCandidate(id: number, role: string, operationId: string, expectedHash: string): Promise<WordPressMedia> {
       if (!Number.isSafeInteger(id) || id < 1 || !/^[a-f0-9]{32}$/.test(operationId) || !/^[a-f0-9]{64}$/.test(expectedHash)) throw new MediaError('CANDIDATE_MISMATCH');
       let response: Response;
-      try { response = await transport(new URL(`/wp-json/wp/v2/media/${id}`, base), { headers: { authorization }, redirect: 'error', signal: AbortSignal.timeout(10000) }); }
+      try { response = await transport(mediaEndpoint(base.origin,id), { headers: { authorization, 'User-Agent':MEDIA_USER_AGENT }, redirect: 'error', signal: AbortSignal.timeout(10000) }); }
       catch { throw new MediaError('WORDPRESS_UNAVAILABLE'); }
       if (!response.ok) throw new MediaError('WORDPRESS_UNAVAILABLE');
       let data: any; try { data=await response.json(); } catch { throw new MediaError('CANDIDATE_MISMATCH'); }
