@@ -120,8 +120,10 @@ export function mountEditorialAgent(app: Express, db: SupabaseClient | null, env
   });
   app.post(`${root}/drafts/:id/finalize`, async (req, res) => {
     if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(req.params.id)) return res.status(400).json({ code: 'INVALID_REQUEST' });
+    const revision = req.body?.expected_revision;
+    if (!req.is('application/json') || !req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).length !== 1 || !Number.isInteger(revision) || revision < 1 || revision > 2147483647) return res.status(400).json({ code: 'EXPECTED_REVISION_REQUIRED' });
     try {
-      const result = await db!.rpc('mira_finalize', { p_id: req.params.id });
+      const result = await db!.rpc('mira_finalize_at_revision', { p_id: req.params.id, p_expected_revision: revision });
       if (result.error || !result.data) return res.status(409).json({ code: 'FINALIZATION_FAILED' });
       return res.json({ submissionId: req.params.id, ...result.data, reviewUrl });
     } catch { return res.status(503).json({ code: 'UNAVAILABLE' }); }
