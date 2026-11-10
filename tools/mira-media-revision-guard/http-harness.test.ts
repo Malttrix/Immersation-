@@ -1,0 +1,14 @@
+import test from 'node:test';import assert from 'node:assert/strict';import sharp from 'sharp';import {mountEditorialAgent} from '../../server/editorial-agent';
+const token='a'.repeat(43);const env:any={VERCEL:'1',VERCEL_ENV:'production',VERCEL_PROJECT_NAME:'immersation',VERCEL_PROJECT_ID:'prj_enkXTJiyVnkh7AeLYxYI1qXiJfQu',VERCEL_GIT_COMMIT_REF:'main',MIRA_PRODUCTION_READY:'true',SUPABASE_URL:'https://zoneqvjrbcowlzwiyinq.supabase.co',VITE_SUPABASE_URL:'https://zoneqvjrbcowlzwiyinq.supabase.co',APP_URL:'https://immersation.com',WORDPRESS_MEDIA_BASE_URL:'https://cms.immersation.com',WORDPRESS_MEDIA_USERNAME:'mira-media-prod',WORDPRESS_MEDIA_APP_PASSWORD:'dummy',MIRA_AGENT_TOKEN:token,SUPABASE_SERVICE_ROLE_KEY:'dummy',VITE_SUPABASE_ANON_KEY:'dummy'};
+test('guarded upload route rejects stale and preserves uncertain, succeeds and rejects unauthenticated',async()=>{
+ let route:any,auth:any,mode='success',uploads=0;const calls:string[]=[];
+ const app:any={use:(path:any,fn:any)=>{if(path==='/api/editorial/agent'&&!auth)auth=fn},get:()=>{},post:(path:string,...handlers:any[])=>{if(path.endsWith('/assets/:role'))route=handlers.at(-1)}};
+ const db:any={rpc:async(name:string,args:any)=>{calls.push(name);if(name==='mira_media_start_at_revision'){assert.equal(args.p_expected_revision,1);return mode==='stale'?{error:{code:'40001'}}:{data:{state:'new'}}}if(name==='mira_media_complete_at_revision')return {data:mode==='changed'?{reconciliation_required:true}:{id:36}};if(name==='mira_media_uncertain')return {data:true};throw Error(name)}};
+ const mediaFetch:any=async()=>{uploads++;if(mode==='network')throw Error('network');return Response.json({id:36,source_url:'https://cms.immersation.com/wp-content/uploads/a.jpg',mime_type:'image/jpeg',media_details:{width:400,height:300}})};
+ mountEditorialAgent(app,db,env,mediaFetch);const image=await sharp({create:{width:400,height:300,channels:3,background:'white'}}).jpeg().toBuffer();
+ const req:any={params:{id:'abc',role:'cover'},body:image,headers:{authorization:'Bearer '+token,'x-forwarded-proto':'https'},is:(v:string)=>v==='application/octet-stream',get:(k:string)=>({'idempotency-key':'a'.repeat(32),'x-expected-revision':'1','x-original-filename':'a.jpg'} as any)[k.toLowerCase()]};
+ const res:any={statusCode:200,status(n:number){this.statusCode=n;return this},json(x:any){this.body=x;return this},set(){return this}};
+ const unauth={...req,headers:{'x-forwarded-proto':'https'}};auth(unauth,res,()=>{throw Error('unauthorized accepted')});assert.equal(res.statusCode,401);
+ for(const [m,expected] of [['stale',409],['success',201],['changed',409],['network',502]] as const){mode=m;res.statusCode=200;res.body=null;const prior=uploads;await route(req,res);assert.equal(res.statusCode,expected);if(m==='stale')assert.equal(uploads,prior);if(m==='changed'||m==='network')assert.equal(res.body.retrySafe,false)}
+ assert.ok(calls.includes('mira_media_uncertain'));
+});
