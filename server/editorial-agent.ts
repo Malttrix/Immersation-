@@ -55,6 +55,16 @@ export function mountEditorialAgent(app: Express, db: SupabaseClient | null, env
       next();
     } catch { res.status(503).json({ code: 'UNAVAILABLE' }); }
   });
+  // Read-only capability and exact state check; no keys or provider data returned.
+  app.get(`${root}/drafts/:id/media-guard-status`, async (req,res) => {
+    if (env.VERCEL !== '1' || validateMiraProduction(env).length) return res.status(404).json({code:'NOT_FOUND'});
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(req.params.id)) return res.status(400).json({code:'INVALID_REQUEST'});
+    try {const result=await db!.rpc('mira_media_guard_status',{p_id:req.params.id});
+      if(result.error) return res.status(503).json({code:'UNAVAILABLE'});
+      if(!result.data) return res.status(404).json({code:'NOT_FOUND'});
+      return res.json({guard:'media-revision-v1',...result.data});
+    }catch{return res.status(503).json({code:'UNAVAILABLE'});}
+  });
   app.post(`${root}/drafts/:id/assets/:role`, express.raw({ type: 'application/octet-stream', limit: MAX_IMAGE_BYTES }), async (req, res) => {
     const id = req.params.id, role = req.params.role, key = req.get('idempotency-key') || '';
     if (!req.is('application/octet-stream')) return res.status(415).json({ code: 'CONTENT_TYPE' });
@@ -63,14 +73,22 @@ export function mountEditorialAgent(app: Express, db: SupabaseClient | null, env
     try { image = await prepareImage(req.body, role); adapter = createWordPressAdapter(env, mediaFetch); }
     catch (err) { return res.status(err instanceof MediaError && err.code === 'WORDPRESS_NOT_CONFIGURED' ? 503 : 400).json({ code: err instanceof MediaError ? err.code : 'INVALID_IMAGE' }); }
     try {
-      const reservation = await db!.rpc('mira_media_start', { p_id: id, p_key: key, p_role: role, p_hash: image.sha256, p_original_hash: createHash('sha256').update(req.body).digest('hex'), p_filename: (req.get('x-original-filename') || '').replace(/[^a-zA-Z0-9._-]/g,'_').slice(0,200) });
-      if (reservation.error) return res.status(reservation.error.code === '23505' || reservation.error.code === '42501' ? 409 : 503).json({ code: 'MEDIA_RESERVATION_FAILED' });
+      const expected = req.get('x-expected-revision');
+      if (expected !== undefined && (!/^[1-9][0-9]{0,9}$/.test(expected) || Number(expected) > 2147483647)) return res.status(400).json({code:'INVALID_EXPECTED_REVISION'});
+      const reservationArgs = { p_id: id, p_key: key, p_role: role, p_hash: image.sha256, p_original_hash: createHash('sha256').update(req.body).digest('hex'), p_filename: (req.get('x-original-filename') || '').replace(/[^a-zA-Z0-9._-]/g,'_').slice(0,200) };
+      const reservation = expected === undefined
+        ? await db!.rpc('mira_media_start', reservationArgs)
+        : await db!.rpc('mira_media_start_at_revision', {...reservationArgs, p_expected_revision:Number(expected)});
+      if (reservation.error) return res.status(reservation.error.code === '23505' || reservation.error.code === '42501' || reservation.error.code === '40001' ? 409 : 503).json({ code: 'MEDIA_RESERVATION_FAILED' });
       if (reservation.data?.state === 'completed') return res.json({ asset: reservation.data.result, replayed: true });
       if (reservation.data?.state !== 'new') return res.status(409).json({ code: 'MEDIA_RECONCILIATION_REQUIRED', retrySafe: false });
       let asset;
       try { asset = await adapter.upload(image, role, createHash('md5').update(key).digest('hex'));  }
       catch (err) { await db!.rpc('mira_media_uncertain', { p_key: key }); return res.status(502).json({ code: err instanceof MediaError ? err.code : 'WORDPRESS_RESULT_UNKNOWN', retrySafe: false }); }
-      const completed = await db!.rpc('mira_media_complete', { p_key: key, p_result: asset });
+      const completed = expected === undefined
+        ? await db!.rpc('mira_media_complete', { p_key: key, p_result: asset })
+        : await db!.rpc('mira_media_complete_at_revision', {p_id:id,p_key:key,p_role:role,p_expected_revision:Number(expected),p_result:asset});
+      if (completed.data?.reconciliation_required === true) return res.status(409).json({code:'MEDIA_RECONCILIATION_REQUIRED',retrySafe:false});
       if (completed.error || !completed.data) return res.status(503).json({ code: 'MEDIA_RECONCILIATION_REQUIRED', retrySafe: false });
       return res.status(201).json({ asset: completed.data, replayed: false });
     } catch { return res.status(503).json({ code: 'MEDIA_RECONCILIATION_REQUIRED', retrySafe: false }); }
