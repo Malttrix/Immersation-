@@ -70,6 +70,7 @@ import AudioExperiencesView from "./components/AudioExperiencesView";
 import WealthFrameworksView from "./components/WealthFrameworksView";
 import PillarsView from "./components/PillarsView";
 import { secureFetch, loadLibrary } from "./lib/security-api";
+import { adminAccessFromResponse, requiresAdminRecheckReset, type AdminAccessState } from "./lib/admin-access";
 import AdminDashboard from "./components/AdminDashboard";
 import SEOHead from "./components/SEOHead";
 
@@ -568,6 +569,8 @@ export default function App() {
   const [cartItems, setCartItems] = useState<any[]>([]);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [adminAccessState, setAdminAccessState] = useState<AdminAccessState>("checking");
+  const verifiedAdminUserId = useRef<string | null>(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
 
   // Google Auth & Admin States
@@ -604,20 +607,52 @@ export default function App() {
     let generation = 0;
     const refresh = async () => {
       const current = ++generation;
-      setIsAdmin(false);
       setUnlockedBookIds([]);
       setSystemTransactions([]);
-      const session = supabase ? (await supabase.auth.getSession()).data.session : null;
+      let session;
+      try {
+        if (supabase) {
+          const result = await supabase.auth.getSession();
+          if (result.error) throw result.error;
+          session = result.data.session;
+        } else session = null;
+      } catch {
+        if (current === generation) {
+          verifiedAdminUserId.current = null;
+          setIsAdmin(false);
+          setAdminAccessState("unavailable");
+        }
+        return;
+      }
       if (current !== generation) return;
+      const userId = session?.user.id ?? null;
+      if (requiresAdminRecheckReset(verifiedAdminUserId.current, userId)) {
+        verifiedAdminUserId.current = null;
+        setIsAdmin(false);
+        setAdminAccessState(userId ? "checking" : "denied");
+      }
       setUserEmail(session?.user.email || null);
       if (session) { setShowGoogleModal(false); setIsSigningIn(false); }
+      let adminResponse: Response | null = null;
+      try {
+        adminResponse = session ? await secureFetch('/api/admin/me') : null;
+      } catch {
+        if (current === generation) {
+          verifiedAdminUserId.current = null;
+          setIsAdmin(false);
+          setAdminAccessState("unavailable");
+        }
+        return;
+      }
+      if (current !== generation) return;
+      const authorized = !!adminResponse?.ok;
+      verifiedAdminUserId.current = authorized ? userId : null;
+      setIsAdmin(authorized);
+      setAdminAccessState(adminAccessFromResponse(!!session, adminResponse?.status ?? null));
       if (session) await secureFetch('/api/claim-purchases', { method: 'POST' }).catch(() => {});
       const library = await loadLibrary().catch(() => []);
       if (current !== generation) return;
       setUnlockedBookIds(library);
-      const adminResponse = session ? await secureFetch('/api/admin/me') : null;
-      if (current !== generation) return;
-      setIsAdmin(!!adminResponse?.ok);
       if (adminResponse?.ok && supabase) {
         const { data } = await supabase.from('products').select('*').not('id','like','\\_\\_%');
         if (current === generation && data) setBooks(sanitizeBooks(data));
@@ -636,7 +671,15 @@ export default function App() {
       }
     };
     void refresh();
-    const subscription = supabase?.auth.onAuthStateChange(() => { setTimeout(() => void refresh(), 0); }).data.subscription;
+    const subscription = supabase?.auth.onAuthStateChange((_event, session) => {
+      generation++;
+      if (requiresAdminRecheckReset(verifiedAdminUserId.current, session?.user.id ?? null)) {
+        verifiedAdminUserId.current = null;
+        setIsAdmin(false);
+        setAdminAccessState(session ? "checking" : "denied");
+      }
+      setTimeout(() => void refresh(), 0);
+    }).data.subscription;
     const onMessage = (event: MessageEvent) => {
       if (event.origin === window.location.origin && event.data?.type === 'OAUTH_AUTH_SUCCESS') void refresh();
     };
@@ -4140,6 +4183,12 @@ export default function App() {
               window.scrollTo({ top: 0, behavior: "smooth" });
             }}
           />
+        ) : adminAccessState === "checking" || adminAccessState === "unavailable" ? (
+          <div className="min-h-screen bg-[#F4F1EB] flex flex-col items-center justify-center p-6 text-center" role="status" aria-live="polite">
+            <p className="text-sm text-stone-600">{adminAccessState === "checking"
+              ? (lang === "en" ? "Checking administrator access…" : "正在验证管理员权限…")
+              : (lang === "en" ? "Unable to verify administrator access. Please refresh and try again." : "无法验证管理员权限，请刷新后重试。")}</p>
+          </div>
         ) : (
           <div className="min-h-screen bg-[#F4F1EB] flex flex-col items-center justify-center p-6 text-center">
             <Lock className="w-16 h-16 text-[#8B5A44] mb-4 animate-bounce" />
@@ -4148,8 +4197,8 @@ export default function App() {
             </h1>
             <p className="text-sm text-stone-600 max-w-md mb-6">
               {lang === "en" 
-                ? "This console is reserved exclusively for the System Administrator (dreammyhomee@gmail.com). Please sign in using the administrator credentials."
-                : "此决策控制台仅限系统超级管理员 (dreammyhomee@gmail.com) 访问。请使用管理员账户进行身份验证。"}
+                ? "This console is reserved for authorized administrators. Please sign in with an administrator account."
+                : "此控制台仅供授权管理员访问。请使用管理员账户登录。"}
             </p>
             <button
               onClick={() => {
