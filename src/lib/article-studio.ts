@@ -294,12 +294,12 @@ export function supabaseArticleRepository(client: any): ArticleRepository {
     },
     async review(id, revision, action) {
       const { data, error } = await client.rpc("mira_review", { p_article: id, p_revision: revision, p_action: action });
-      if (error) throw Error(error.message);
+      if (error) throw Error(error.code === "40001" ? "Article revision conflict" : error.message);
       return data;
     },
     async publishReviewed(id, revision) {
       const { data, error } = await client.rpc("mira_publish", { p_article: id, p_revision: revision });
-      if (error || !data) throw Error(error?.message || "Publication not confirmed.");
+      if (error || !data) throw Error(error?.code === "40001" ? "Article revision conflict" : error?.message || "Publication not confirmed.");
       return hydrateArticle(data);
     },
     async list() {
