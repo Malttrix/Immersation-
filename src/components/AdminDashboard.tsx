@@ -34,7 +34,6 @@ import {
   Key,
   Shield,
   Eye,
-  Lock,
   Download,
   Database,
   MessageSquare,
@@ -89,31 +88,6 @@ export default function AdminDashboard({
   setNewsletterIssues,
   onClose
 }: AdminDashboardProps) {
-  // If not admin, block entry
-  const isAdmin = userEmail === "dreammyhomee@gmail.com";
-  
-  if (!isAdmin) {
-    return (
-      <div className="min-h-screen bg-[#F4F1EB] flex flex-col items-center justify-center p-6 text-center">
-        <Lock className="w-16 h-16 text-[#8B5A44] mb-4 animate-bounce" />
-        <h1 className="font-serif text-3xl font-semibold text-[#1A2F24] mb-2">
-          {lang === "en" ? "Access Denied" : "访问受限"}
-        </h1>
-        <p className="text-sm text-stone-600 max-w-md mb-6">
-          {lang === "en" 
-            ? "This console is reserved exclusively for System Administrators. Please log in with the administrator account."
-            : "此控制台仅供系统管理员访问。请登录管理员账号后再试。"}
-        </p>
-        <button
-          onClick={onClose}
-          className="bg-[#1A2F24] hover:bg-[#8B5A44] text-[#F4F1EB] font-display text-xs font-semibold uppercase tracking-widest px-6 py-3 rounded-xs transition-colors"
-        >
-          {lang === "en" ? "Return to Library" : "返回图书馆"}
-        </button>
-      </div>
-    );
-  }
-
   // Admin active main section state
   const [activeTab, setActiveTab] = useState<"overview" | "ecommerce" | "content" | "audio" | "subscribers" | "members" | "analytics" | "settings">("overview");
 
