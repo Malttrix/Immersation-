@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   Save,
   Eye,
@@ -46,30 +46,38 @@ export function ArticleEditor({
     [lang, setLang] = useState<Language>("en"),
     [preview, setPreview] = useState(false),
     [settings, setSettings] = useState(true);
+  const [metadataDirty, setMetadataDirty] = useState(false);
+  const onMetadataDirtyChange = useCallback((value: boolean) => setMetadataDirty(value), []);
   useEffect(() => {
     onSavingChange?.(state === "Saving");
     return () => onSavingChange?.(false);
   }, [state, onSavingChange]);
   useEffect(() => {
-    onDirtyChange?.(dirty);
+    onDirtyChange?.(dirty || metadataDirty);
     return () => onDirtyChange?.(false);
-  }, [dirty, onDirtyChange]);
+  }, [dirty, metadataDirty, onDirtyChange]);
   useEffect(() => {
     const save = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault();
-        void draft.save(articles);
+        if (!metadataDirty) void draft.save(articles);
       }
     };
     window.addEventListener("keydown", save);
     return () => window.removeEventListener("keydown", save);
-  }, [article, state]);
+  }, [article, state, metadataDirty]);
+  useEffect(() => {
+    if (!metadataDirty) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [metadataDirty]);
   const close = () => {
     if (state === "Saving") return;
     if (
-      !dirty ||
+      (!dirty && !metadataDirty) ||
       window.confirm(
-        "Leave this editor? Unsaved work remains only in this browser recovery copy.",
+        "Leave this editor? Unsaved private metadata will be lost; article changes may remain in browser recovery.",
       )
     )
       onClose();
@@ -129,7 +137,7 @@ export function ArticleEditor({
           </button>
           <button
             type="button"
-            disabled={state === "Saving"}
+            disabled={state === "Saving" || metadataDirty}
             className="studio-primary"
             onClick={() => void draft.save(articles)}
           >
@@ -140,22 +148,7 @@ export function ArticleEditor({
           </button>
         </div>
       </header>
-      {article._studioExtensions?.miraSubmissionId && (
-        <aside className="studio-notice" aria-label="MIRA editorial review">
-          <strong>MIRA editorial review</strong>
-          <p>Save changes before review. Approval applies only to this saved revision; later edits require a new approval.</p>
-          {[['request_revision', 'Request revision'], ['reject', 'Reject'], ['approve', 'Approve revision']].map(([action, label]) => (
-            <button key={action} type="button" disabled={dirty || state === 'Saving'} onClick={async () => {
-              try {
-                if (!repository.review) throw Error('Remote review is unavailable.');
-                await repository.review(article.id, article.studio_revision || 0, action);
-                window.alert('Review action saved.');
-              } catch (e) { window.alert(e instanceof Error ? e.message : 'Review action failed.'); }
-            }}>{label}</button>
-          ))}
-        </aside>
-      )}
-      {article._studioExtensions?.miraSubmissionId && <MiraReviewDetails article={article} repository={repository} onSaved={(a) => { onSaved(a); onClose(); }} dirty={dirty} />}
+      {article._studioExtensions?.miraSubmissionId && <MiraReviewDetails article={article} repository={repository} onSaved={(a) => { onSaved(a); onClose(); }} dirty={dirty || state === "Saving"} onMetadataDirtyChange={onMetadataDirtyChange} />}
       {draft.recovery && (
         <aside className="studio-notice">
           <p>
