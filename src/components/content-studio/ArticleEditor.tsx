@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Save,
   Eye,
@@ -47,6 +47,8 @@ export function ArticleEditor({
     [preview, setPreview] = useState(false),
     [settings, setSettings] = useState(true);
   const [metadataDirty, setMetadataDirty] = useState(false);
+  const previewRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (preview) previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, [preview]);
   const onMetadataDirtyChange = useCallback((value: boolean) => setMetadataDirty(value), []);
   useEffect(() => {
     onSavingChange?.(state === "Saving");
@@ -148,7 +150,7 @@ export function ArticleEditor({
           </button>
         </div>
       </header>
-      {article._studioExtensions?.miraSubmissionId && <MiraReviewDetails article={article} repository={repository} onSaved={(a) => { onSaved(a); onClose(); }} dirty={dirty || state === "Saving"} onMetadataDirtyChange={onMetadataDirtyChange} />}
+      {preview && <div ref={previewRef}><ArticlePreview article={article} lang={lang} /></div>}
       {draft.recovery && (
         <aside className="studio-notice">
           <p>
@@ -173,6 +175,7 @@ export function ArticleEditor({
           </ul>
         </div>
       )}
+      {article._studioExtensions?.miraSubmissionId && <MiraReviewDetails article={article} repository={repository} onSaved={(a) => { onSaved(a); onClose(); }} dirty={dirty || state === "Saving"} onMetadataDirtyChange={onMetadataDirtyChange} />}
       <p className="studio-recovery" role="status">
         {draft.recoveryStatus ||
           "Changes are committed only when you choose Save."}
@@ -277,7 +280,6 @@ export function ArticleEditor({
           </fieldset>
         </main>
       </div>
-      {preview && <ArticlePreview article={article} lang={lang} />}
     </div>
   );
 }

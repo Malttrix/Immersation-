@@ -2326,7 +2326,7 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "epubConversionStatus" TEXT
               {/* ========================================================= */}
               {/* SUB-TAB 1: ARTICLES                                       */}
               {/* ========================================================= */}
-              {contentSubTab === "articles" && <ContentStudio articles={articles} repository={articleRepository} owner={userEmail||'admin'} onDirtyChange={setArticleDirty} onSavingChange={setArticleSaving} onSaved={saved=>{setArticles(old=>[saved,...old.filter(a=>a.id!==saved.id)]);addAuditLog("Save Article",`Saved article "${saved.title.en}"`);}}/>}
+              {contentSubTab === "articles" && <ContentStudio articles={articles} repository={articleRepository} owner={userEmail||'admin'} onDirtyChange={setArticleDirty} onSavingChange={setArticleSaving} onDeleted={id=>setArticles(old=>old.filter(a=>a.id!==id))} onSaved={saved=>{setArticles(old=>[saved,...old.filter(a=>a.id!==saved.id)]);addAuditLog("Save Article",`Saved article "${saved.title.en}"`);}}/>}
 
               {/* ========================================================= */}
               {/* SUB-TAB 2: NEWSLETTERS (SENDFOX INTEGRATED)               */}

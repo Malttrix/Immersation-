@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Plus, Search, ArrowUpRight } from "lucide-react";
+import { Plus, Search, ArrowUpRight, Trash2 } from "lucide-react";
 import { ArticleEditor } from "./ArticleEditor";
 import {
   createArticle,
@@ -8,11 +8,18 @@ import {
   type ArticleRepository,
 } from "../../lib/article-studio";
 import "./content-studio.css";
+function publicationDay(article: StudioArticle): string {
+  const value = article.publicationDate || article.date?.en;
+  if (!value) return '';
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? new Date(time).toISOString().slice(0, 10) : '';
+}
 export function ContentStudio({
   articles: rawArticles,
   repository,
   owner,
   onSaved,
+  onDeleted,
   onDirtyChange,
   onSavingChange,
   createRequest = 0,
@@ -21,6 +28,7 @@ export function ContentStudio({
   repository: ArticleRepository;
   owner: string;
   onSaved: (a: StudioArticle) => void;
+  onDeleted?: (id: string) => void;
   onDirtyChange?: (dirty: boolean) => void;
   onSavingChange?: (saving: boolean) => void;
   createRequest?: number;
@@ -29,6 +37,10 @@ export function ContentStudio({
     [editing, setEditing] = useState<StudioArticle | null>(null),
     [search, setSearch] = useState(""),
     [filter, setFilter] = useState("All"),
+    [pillar, setPillar] = useState("All"),
+    [dateFrom, setDateFrom] = useState(""),
+    [dateTo, setDateTo] = useState(""),
+    [deleting, setDeleting] = useState<string | null>(null),
     [error, setError] = useState("");
   useEffect(() => {
     setArticles(rawArticles.map(hydrateArticle));
@@ -60,6 +72,8 @@ export function ContentStudio({
   const rows = articles.filter(
     (a) =>
       (filter === "All" || (a.status || "Published") === filter) &&
+      (pillar === "All" || String(a.pillar || '').toLowerCase().replace(/s$/, '') === pillar) &&
+      ((!dateFrom && !dateTo) || (() => { const d = publicationDay(a); return !!d && (!dateFrom || d >= dateFrom) && (!dateTo || d <= dateTo); })()) &&
       `${a.title.en} ${a.title.zh} ${a.slug}`
         .toLowerCase()
         .includes(search.toLowerCase()),
@@ -121,14 +135,18 @@ export function ContentStudio({
                 <option key={x}>{x}</option>
               ))}
             </select>
+            <select aria-label="Filter by pillar" value={pillar} onChange={e => setPillar(e.target.value)}>
+              <option value="All">All pillars</option><option value="tool">Tools</option><option value="body">Body</option><option value="capital">Capital</option>
+            </select>
+            <label>Published from <input aria-label="Published from" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} /></label>
+            <label>Published to <input aria-label="Published to" type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} /></label>
             <span>{rows.length} articles</span>
           </div>
           <div className="studio-article-list">
             {rows.map((a) => (
-              <button
+              <div className="studio-article-list-item" key={a.id}><button
                 type="button"
                 className="studio-article-row"
-                key={a.id}
                 onClick={() => setEditing(a)}
               >
                 <div>
@@ -140,7 +158,13 @@ export function ContentStudio({
                   <code>/{a.slug}</code>
                 </div>
                 <ArrowUpRight size={20} />
-              </button>
+              </button><button type="button" className="studio-delete" disabled={!!deleting} aria-label={`Delete ${a.title.en || a.slug}`} onClick={async () => {
+                if (!window.confirm(`Delete “${a.title.en || a.slug}”? This permanently removes the article and may remove it from the website.`)) return;
+                setDeleting(a.id); setError('');
+                try { if (!repository.delete) throw Error('Deletion is unavailable.'); await repository.delete(a.id, a.studio_revision || 0); setArticles(old => old.filter(x => x.id !== a.id)); onDeleted?.(a.id); }
+                catch (e) { setError(e instanceof Error ? e.message : 'Deletion failed.'); }
+                finally { setDeleting(null); }
+              }}><Trash2 size={18} /> Delete</button></div>
             ))}
             {!rows.length && (
               <p className="studio-empty">

@@ -125,6 +125,11 @@ test("draft validation permits incomplete second language, publishing requires b
   assert.ok(validateArticle(a).some((e) => e.includes("Simplified Chinese")));
   assert.ok(validateArticle(a).some((e) => e.includes("English")));
 });
+test("published MIRA articles can be edited but drafts cannot be published through save", () => {
+  const a = { ...existing(), status: 'Published', _studioExtensions: { miraSubmissionId: 'test' } };
+  assert.deepEqual(validateArticle(a, [], a), []);
+  assert.ok(validateArticle(a, [], { ...a, status: 'Draft' }).some(e => e.includes('Draft')));
+});
 test("schedule conversion uses explicit Singapore timezone and due visibility", () => {
   assert.equal(
     fromScheduleInput("2030-01-02T10:30"),

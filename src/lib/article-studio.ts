@@ -155,6 +155,7 @@ export function fromScheduleInput(value: string) {
 export function validateArticle(
   a: StudioArticle,
   existing: StudioArticle[] = [],
+  original?: StudioArticle,
 ): string[] {
   const errors: string[] = [];
   if (!a.slug || !/^[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*$/u.test(a.slug))
@@ -163,7 +164,7 @@ export function validateArticle(
     errors.push("This slug belongs to another article.");
   if (!a.title.en.trim() && !a.title.zh.trim())
     errors.push("Add an article title in at least one language.");
-  if (a._studioExtensions?.miraSubmissionId && a.status !== "Draft")
+  if (a._studioExtensions?.miraSubmissionId && a.status !== "Draft" && !(a.status === "Published" && original?.status === "Published"))
     errors.push("Set Publication status to Draft to save MIRA edits. MIRA publication is disabled.");
   if (a.status !== "Draft")
     for (const l of ["en", "zh"] as const)
@@ -253,6 +254,7 @@ export interface ArticleRepository {
   saveDestination?: "remote" | "browser-review";
   list(): Promise<StudioArticle[]>;
   save(article: StudioArticle, revision: number): Promise<StudioArticle>;
+  delete?(id: string, revision: number): Promise<void>;
   review?(id: string, revision: number, action: string): Promise<any>;
   reviewDetails?(id: string): Promise<any>;
   updateEditorial?(id: string, revision: number, patch: any): Promise<StudioArticle>;
@@ -263,6 +265,12 @@ export interface ArticleRepository {
 }
 export function supabaseArticleRepository(client: any): ArticleRepository {
   return {
+    async delete(id, revision) {
+      if (!client) throw Error('Supabase is not configured.');
+      const {data, error} = await client.from('articles').delete().eq('id', id).eq('studio_revision', revision).select('id');
+      if (error) throw Error(error.code === '23503' ? 'This article has linked review records and cannot be deleted until those dependencies are safely handled.' : error.message);
+      if (!data || data.length !== 1) throw Error('Article was not deleted. Refresh the list and check administrator access.');
+    },
     async updateEditorial(id, revision, patch) {
       const {data, error} = await client.rpc("mira_update_editorial", {p_article:id,p_revision:revision,p_patch:patch});
       if (error || !data) throw Error(error?.message || "Save failed.");

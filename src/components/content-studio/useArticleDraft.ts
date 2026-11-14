@@ -100,7 +100,7 @@ export function useArticleDraft(
   }, [dirty]);
   const save = async (articles: StudioArticle[]) => {
     if (busy.current) return false;
-    const issues = validateArticle(article, articles);
+    const issues = validateArticle(article, articles, original.current);
     if (issues.length) {
       setErrors(issues);
       setState("Error");
