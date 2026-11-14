@@ -262,6 +262,7 @@ export function ArticleEditor({
                 article={article}
                 change={change}
                 articles={articles}
+                originalStatus={draft.original.status}
                 originalSlug={
                   draft.original.status === "Published" ||
                   !draft.original.status

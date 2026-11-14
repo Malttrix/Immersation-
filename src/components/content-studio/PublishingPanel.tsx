@@ -10,12 +10,16 @@ export function PublishingPanel({
   change,
   articles,
   originalSlug,
+  originalStatus,
 }: {
   article: StudioArticle;
   change: (p: Partial<StudioArticle>) => void;
   articles: StudioArticle[];
   originalSlug?: string;
+  originalStatus?: string;
 }) {
+  const mira = !!a._studioExtensions?.miraSubmissionId;
+  const alreadyPublished = mira && originalStatus === 'Published';
   return (
     <Panel
       title="Publishing"
@@ -27,11 +31,11 @@ export function PublishingPanel({
             value={a.status || "Published"}
             onChange={(e) => change({ status: e.target.value })}
           >
-            <option>Draft</option>
-            <option disabled={!!a._studioExtensions?.miraSubmissionId}>Published</option>
-            <option disabled={!!a._studioExtensions?.miraSubmissionId}>Scheduled</option>
+            <option disabled={alreadyPublished}>Draft</option>
+            <option disabled={mira && !alreadyPublished}>Published</option>
+            <option disabled={mira}>Scheduled</option>
           </select>
-          {a._studioExtensions?.miraSubmissionId && <p>Save MIRA changes as Draft, then approve the saved revision. MIRA publication is disabled.</p>}
+          {mira && <p>{alreadyPublished ? 'Saving changes updates the published article immediately.' : 'Save the draft, then use Founder Review to approve and publish it.'}</p>}
         </Field>
         <Field label="Publish date">
           <input
