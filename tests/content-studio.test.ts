@@ -130,6 +130,37 @@ test("published MIRA articles can be edited but drafts cannot be published throu
   assert.deepEqual(validateArticle(a, [], a), []);
   assert.ok(validateArticle(a, [], { ...a, status: 'Draft' }).some(e => e.includes('Draft')));
 });
+test("archived articles are not public, including for signed-in administrators", () => {
+  assert.equal(articleIsPublic({ ...existing(), status: 'Published', studio: { status: 'Published', archivedAt: '2026-11-14T00:00:00Z' } }), false);
+});
+test("archive requires an administrator and current revision and preserves linked MIRA history", async () => {
+  const db = new PGlite();
+  try {
+    await db.exec(`create role anon; create role authenticated; create role service_role; create schema auth;
+      create function auth.uid() returns uuid language sql as $$ select case when current_setting('test.admin',true)='true' then '11111111-1111-4111-8111-111111111111'::uuid else null end $$;
+      create function public.is_security_admin() returns boolean language sql as $$ select current_setting('test.admin',true)='true' $$;
+      create table public.articles(id text primary key,studio jsonb not null default '{}',studio_revision integer not null default 0);
+      create table public.mira_submissions(submission_id text primary key,article_id text not null references public.articles(id) on delete restrict,review_status text,approved_revision integer);
+      create table public.mira_audit(submission_id text references public.mira_submissions(submission_id),action text,actor text,revision integer);
+      alter table public.articles enable row level security; grant select on public.articles to anon,authenticated;
+      insert into public.articles values('mira-article','{"status":"Published"}',7);
+      insert into public.mira_submissions values('submission','mira-article','published',6);
+      insert into public.mira_audit values('submission','approved','founder',6);`);
+    await db.exec(readFileSync(new URL('../supabase/migrations/202611140002_studio_archive_articles.sql', import.meta.url),'utf8'));
+    await db.exec('create policy public_articles on public.articles for select to anon,authenticated using(public.is_security_admin() or public.studio_article_visible(to_jsonb(articles)))');
+    await db.exec("set test.admin='false'");
+    await assert.rejects(db.query("select studio_archive_article('mira-article',7)"),/Administrator access required/);
+    await db.exec("set test.admin='true'");
+    await assert.rejects(db.query("select studio_archive_article('mira-article',6)"),/revision conflict/);
+    await db.query("select studio_archive_article('mira-article',7)");
+    await assert.rejects(db.query("select studio_archive_article('mira-article',8)"),/already archived/);
+    assert.equal((await db.query("select * from mira_audit")).rows.length,2);
+    assert.equal((await db.query("select * from mira_submissions")).rows.length,1);
+    assert.equal((await db.query<any>("select review_status,approved_revision from mira_submissions")).rows[0].approved_revision,6);
+    await db.exec("set test.admin='false'; set role anon");
+    assert.equal((await db.query("select * from articles")).rows.length,0);
+  } finally { await db.close(); }
+});
 test("schedule conversion uses explicit Singapore timezone and due visibility", () => {
   assert.equal(
     fromScheduleInput("2030-01-02T10:30"),

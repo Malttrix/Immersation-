@@ -33,7 +33,7 @@ export function ContentStudio({
   onSavingChange?: (saving: boolean) => void;
   createRequest?: number;
 }) {
-  const [articles, setArticles] = useState(rawArticles.map(hydrateArticle)),
+  const [articles, setArticles] = useState(rawArticles.map(hydrateArticle).filter(a => !a.archivedAt)),
     [editing, setEditing] = useState<StudioArticle | null>(null),
     [search, setSearch] = useState(""),
     [filter, setFilter] = useState("All"),
@@ -43,7 +43,7 @@ export function ContentStudio({
     [deleting, setDeleting] = useState<string | null>(null),
     [error, setError] = useState("");
   useEffect(() => {
-    setArticles(rawArticles.map(hydrateArticle));
+    setArticles(rawArticles.map(hydrateArticle).filter(a => !a.archivedAt));
   }, [rawArticles]);
   useEffect(() => {
     let active = true;
@@ -159,7 +159,7 @@ export function ContentStudio({
                 </div>
                 <ArrowUpRight size={20} />
               </button><button type="button" className="studio-delete" disabled={!!deleting} aria-label={`Delete ${a.title.en || a.slug}`} onClick={async () => {
-                if (!window.confirm(`Delete “${a.title.en || a.slug}”? This permanently removes the article and may remove it from the website.`)) return;
+                if (!window.confirm(`Remove “${a.title.en || a.slug}” from Content Studio and the website? Its content and review history will be retained for recovery.`)) return;
                 setDeleting(a.id); setError('');
                 try { if (!repository.delete) throw Error('Deletion is unavailable.'); await repository.delete(a.id, a.studio_revision || 0); setArticles(old => old.filter(x => x.id !== a.id)); onDeleted?.(a.id); }
                 catch (e) { setError(e instanceof Error ? e.message : 'Deletion failed.'); }

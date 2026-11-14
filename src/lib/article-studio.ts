@@ -127,6 +127,7 @@ export function articleSEO(a: any, lang: Language) {
 export function articleIsPublic(raw: any, now = Date.now()) {
   const a = hydrateArticle(raw),
     status = a.status || (a.published === false ? "Draft" : "Published");
+  if (a.archivedAt) return false;
   return (
     status === "Published" ||
     (status === "Scheduled" &&
@@ -267,9 +268,9 @@ export function supabaseArticleRepository(client: any): ArticleRepository {
   return {
     async delete(id, revision) {
       if (!client) throw Error('Supabase is not configured.');
-      const {data, error} = await client.from('articles').delete().eq('id', id).eq('studio_revision', revision).select('id');
-      if (error) throw Error(error.code === '23503' ? 'This article has linked review records and cannot be deleted until those dependencies are safely handled.' : error.message);
-      if (!data || data.length !== 1) throw Error('Article was not deleted. Refresh the list and check administrator access.');
+      const {data, error} = await client.rpc('studio_archive_article', {p_article: id, p_expected_revision: revision});
+      if (error) throw Error(error.code === '40001' ? 'The article changed. Refresh the list before removing it.' : error.message);
+      if (!data || data.id !== id || data.archived !== true || data.revision !== revision + 1) throw Error('Removal was not confirmed. Refresh the list before trying again.');
     },
     async updateEditorial(id, revision, patch) {
       const {data, error} = await client.rpc("mira_update_editorial", {p_article:id,p_revision:revision,p_patch:patch});
@@ -315,7 +316,7 @@ export function supabaseArticleRepository(client: any): ArticleRepository {
         throw Error("Supabase is not configured. No remote save is available.");
       const { data, error } = await client.from("articles").select("*");
       if (error) throw Error(error.message);
-      return (data || []).map(hydrateArticle);
+      return (data || []).map(hydrateArticle).filter((a: StudioArticle) => !a.archivedAt);
     },
     async save(article, revision) {
       if (!client)
