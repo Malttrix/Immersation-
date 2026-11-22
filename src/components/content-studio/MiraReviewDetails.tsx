@@ -18,7 +18,7 @@ export function MiraReviewDetails({ article, repository, onSaved, dirty, onMetad
   useEffect(() => { onMetadataDirtyChange(metadataBaseline !== null && metadataDirty); return () => onMetadataDirtyChange(false); }, [metadataDirty, metadataBaseline, onMetadataDirtyChange]);
   function discardMetadata() { if (metadataBaseline === null || !window.confirm('Discard unsaved private metadata changes?')) return; const [n,r,q,a] = JSON.parse(metadataBaseline); setNotes(n); setReferences(r); setQa(q); setAlt(a); }
   async function act(action: ReviewAction) {
-    if (actionLock.current || dirty || metadataDirty || reloadRequired || info?.status !== 'pending_review') return;
+    if (actionLock.current || dirty || metadataDirty || reloadRequired || !(info?.status === 'pending_review' || (action === 'approve' && info?.status === 'collecting_assets'))) return;
     actionLock.current = true; setBusy(true); setMessage('');
     try {
       if (!repository.review || !repository.reviewDetails || !extra.miraSubmissionId) throw Error('Remote review is unavailable.');
@@ -55,7 +55,8 @@ export function MiraReviewDetails({ article, repository, onSaved, dirty, onMetad
     <summary>MIRA review · revision {article.studio_revision || 0}</summary>
     <p>Submission: {extra.miraSubmissionId}. Review status: <strong>{({ pending_review: 'Pending', approved: 'Approved', rejected: 'Rejected', revision_requested: 'Revision requested', collecting_assets: 'Collecting assets', published: 'Published' } as Record<string,string>)[info?.status] || (info ? 'Unknown' : 'Loading…')}</strong>. Approved revision: {info?.approvedRevision ?? 'None'}.</p>
     <p>Approval applies only to this saved revision. Later edits require a new approval. Use the language and Preview controls for both articles.</p>
-    {([['request_revision', 'Request revision'], ['reject', 'Reject'], ['approve', 'Approve revision']] as [ReviewAction,string][]).map(([action,label]) => <button key={action} type="button" disabled={dirty || metadataDirty || busy || reloadRequired || info?.status !== 'pending_review'} onClick={() => void act(action)}>{label}</button>)}
+    {([['request_revision', 'Request revision'], ['reject', 'Reject'], ['approve', 'Approve revision']] as [ReviewAction,string][]).map(([action,label]) => <button key={action} type="button" disabled={dirty || metadataDirty || busy || reloadRequired || !(info?.status === 'pending_review' || (action === 'approve' && info?.status === 'collecting_assets'))} onClick={() => void act(action)}>{label}</button>)}
+    {info?.status === 'collecting_assets' && <p>Approval checks that the saved bilingual article and verified cover are complete. Publication remains separate.</p>}
     <button type="button" disabled={busy || dirty || metadataDirty || reloadRequired || info?.publishEligible !== true || info?.currentRevision !== article.studio_revision || info?.approvedRevision !== article.studio_revision} onClick={() => void publish()}>Publish approved revision…</button>
     <p>Publishing is a separate action and requires confirmation of the exact approved revision.</p>
     {reloadRequired && <p role="alert">Reopen the article to check its current server state before taking another action.</p>}
