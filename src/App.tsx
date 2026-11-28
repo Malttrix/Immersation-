@@ -239,6 +239,10 @@ const getViewForPath = (pathWithHash: string): { view: "home" | "about" | "priva
   const cleanPath = rawPath.length > 1 ? rawPath.replace(/\/+$/, "") : rawPath;
   
   if (cleanPath === "/admin") return { view: "admin", slug: null };
+  if (cleanPath === "/articles") return { view: "articles", slug: null };
+  if (cleanPath.startsWith("/articles/")) {
+    return { view: "articles", slug: cleanPath.slice("/articles/".length) };
+  }
 
   if (cleanPath === "/about-us" || cleanPath.includes("about")) {
     return { view: "about", slug: null };
@@ -252,12 +256,7 @@ const getViewForPath = (pathWithHash: string): { view: "home" | "about" | "priva
   if (cleanPath === "/newsletter" || cleanPath.includes("newsletter")) {
     return { view: "newsletter", slug: null };
   }
-  if (cleanPath.startsWith("/articles/")) {
-    const rawSlug = cleanPath.substring("/articles/".length);
-    const slug = rawSlug.replace(/\/+$/, "");
-    return { view: "articles", slug: slug || null };
-  }
-  if (cleanPath === "/articles" || cleanPath.includes("articles")) {
+  if (cleanPath.includes("articles")) {
     return { view: "articles", slug: null };
   }
   if (cleanPath === "/pillars" || cleanPath.includes("pillars")) {
@@ -1212,6 +1211,12 @@ export default function App() {
         }
       }, 80);
     }
+  };
+
+  const handleArticlesMenuLink = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    setMobileMenuOpen(false);
+    handleNavigation("/articles", event);
   };
 
   // Centralized URL state sync
@@ -2527,7 +2532,7 @@ export default function App() {
                   return (
                     <div key={link.href} className="relative group">
                       <a
-                        href={link.href}
+                        href="/editorial-intelligence"
                         onClick={(e) => handleNavigation(link.href, e)}
                         className={`font-display text-xs font-semibold uppercase tracking-[0.2em] transition-colors duration-300 flex items-center gap-1 ${
                           activeView === "editorial-intelligence" || activeView === "articles" || activeView === "newsletter"
@@ -2538,11 +2543,11 @@ export default function App() {
                         {link.label[lang]}
                         <ChevronDown className="w-3 h-3 transition-transform duration-300 group-hover:rotate-180" />
                       </a>
-                      <div className="absolute top-full left-0 pt-4 w-64 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 transform translate-y-2 group-hover:translate-y-0 z-50">
+                      <div className="absolute top-full left-0 pt-4 w-64 opacity-0 invisible group-hover:opacity-100 group-hover:visible group-focus-within:opacity-100 group-focus-within:visible transition-opacity duration-300 z-50">
                         <div className="bg-[#F4F1EB] border border-[#D8D2C6] rounded-sm shadow-xl py-2 flex flex-col">
                           <a 
-                            href="articles"
-                            onClick={(e) => handleNavigation("articles", e)}
+                            href="/articles"
+                            onClick={handleArticlesMenuLink}
                             className="px-6 py-3 font-display text-[10px] font-semibold uppercase tracking-widest text-[#1C1C1C]/75 hover:text-[#8B5A44] hover:bg-[#E8DDCF]/50 transition-colors"
                           >
                             {lang === "en" ? "Articles" : "专栏文章"}
@@ -2682,11 +2687,8 @@ export default function App() {
                         </a>
                         <div className="pl-4 flex flex-col gap-2 border-l border-[#D8D2C6]/60">
                           <a
-                            href="articles"
-                            onClick={(e) => {
-                              setMobileMenuOpen(false);
-                              handleNavigation("articles", e);
-                            }}
+                            href="/articles"
+                            onClick={handleArticlesMenuLink}
                             className={`font-display text-xs font-semibold uppercase tracking-[0.2em] py-1 transition-colors ${
                               activeView === "articles" ? "text-[#8B5A44]" : "text-[#1C1C1C]/70 hover:text-[#8B5A44]"
                             }`}
@@ -4011,7 +4013,8 @@ export default function App() {
             window.scrollTo({ top: 0, behavior: "smooth" });
           }}
           onPlayChime={() => audioEngineRef.current?.playChime()}
-          initialArticleSlug={activeArticleSlug}
+          activeArticleSlug={activeArticleSlug}
+          onNavigateToArticle={(slug) => handleNavigation(getPathForView("articles", slug))}
           articles={visibleArticles}
         />
       ) : activeView === "reading-room" ? (

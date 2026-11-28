@@ -42,7 +42,8 @@ interface ArticlesViewProps {
   lang: "en" | "zh";
   onBackToHome: () => void;
   onPlayChime?: () => void;
-  initialArticleSlug?: string | null;
+  activeArticleSlug: string | null;
+  onNavigateToArticle: (slug: string | null) => void;
   articles?: Article[];
 }
 
@@ -875,7 +876,7 @@ function SidebarRelated({
   );
 }
 
-export default function ArticlesView({ lang, onBackToHome, onPlayChime, initialArticleSlug, articles: propArticles }: ArticlesViewProps) {
+export default function ArticlesView({ lang, onBackToHome, onPlayChime, activeArticleSlug, onNavigateToArticle, articles: propArticles }: ArticlesViewProps) {
     const heroVideoRef = useRef<HTMLVideoElement>(null);
 
   // Generate deterministic jagged path coordinates to simulate a physical torn paper edge
@@ -973,51 +974,16 @@ export default function ArticlesView({ lang, onBackToHome, onPlayChime, initialA
   const [subscribedEmail, setSubscribedEmail] = useState("");
   const [subscribed, setSubscribed] = useState(false);
   const [subInterests, setSubInterests] = useState<string[]>(["body", "tool", "capital"]);
-  const [activeArticleSlug, setActiveArticleSlug] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-
-  // Sync with initial article slug
-  useEffect(() => {
-    window.scrollTo({ top: 0 });
-    if (initialArticleSlug) {
-      setActiveArticleSlug(initialArticleSlug);
-    } else {
-      const match = window.location.pathname.match(/^\/articles\/(.+)$/);
-      if (match) {
-        setActiveArticleSlug(match[1]);
-      }
-    }
-  }, [initialArticleSlug]);
-
-  // Handle browser back button/popstate within the component
-  useEffect(() => {
-    const handlePopState = () => {
-      const path = window.location.pathname;
-      const match = path.match(/^\/articles\/(.+)$/);
-      if (match) {
-        setActiveArticleSlug(match[1]);
-      } else {
-        setActiveArticleSlug(null);
-      }
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    };
-
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
 
   const handleArticleClick = (slug: string) => {
     if (onPlayChime) onPlayChime();
-    setActiveArticleSlug(slug);
-    window.history.pushState({}, "", `/articles/${slug}`);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    onNavigateToArticle(slug);
   };
 
   const handleBackToArchive = () => {
     if (onPlayChime) onPlayChime();
-    setActiveArticleSlug(null);
-    window.history.pushState({}, "", `/articles`);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    onNavigateToArticle(null);
   };
 
   const toggleBookmark = (slug: string, e: React.MouseEvent) => {
